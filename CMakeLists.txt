@@ -81,7 +81,13 @@ endif (APPLE)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/)
 
 if (WIN32 AND EXISTS "D:/toolchain/__staging__/vcpkg/installed/x64-windows")
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND EXISTS "D:/toolchain/__staging__/vcpkg/installed/x64-windows/debug")
+        list(APPEND CMAKE_PREFIX_PATH "D:/toolchain/__staging__/vcpkg/installed/x64-windows/debug")
+    endif()
     list(APPEND CMAKE_PREFIX_PATH "D:/toolchain/__staging__/vcpkg/installed/x64-windows")
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND EXISTS "D:/toolchain/__staging__/vcpkg/installed/x64-windows/debug")
+        list(APPEND CMAKE_PREFIX_PATH "D:/toolchain/__staging__/vcpkg/installed/x64-windows/debug")
+    endif()
 endif()
 
 if (ANDROID)
