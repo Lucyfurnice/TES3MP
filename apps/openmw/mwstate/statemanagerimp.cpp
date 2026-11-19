@@ -171,10 +171,10 @@ void MWState::StateManager::newGame(bool bypass)
     try
     {
         Log(Debug::Info) << "Starting a new game";
+        mState = State_Running;
         MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
 
-        mState = State_Running;
         MWBase::Environment::get().getLuaManager()->gameLoaded();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);

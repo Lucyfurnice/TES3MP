@@ -5,6 +5,9 @@
 #include <optional>
 #include <stdexcept>
 
+#include <SDL.h>
+#include <SDL_events.h>
+
 #include <components/debug/debuglog.hpp>
 #include <components/esm/defs.hpp>
 #include <components/esm3/cellid.hpp>
@@ -388,30 +391,33 @@ MWWorld::Ptr MWWorld::WorldModel::getPtrByRefId(const ESM::RefId& name)
             return ptr;
     }
 
-    // Now try the other cells
+    // Now try the other cells. Pump OS window events periodically so scanning large modded
+    // cell lists (e.g. from OpDisable on startup) does not trip the Windows hang detector.
     const MWWorld::Store<ESM::Cell>& cells = mStore.get<ESM::Cell>();
+    std::size_t scannedCells = 0;
+    const bool hasVideo = SDL_WasInit(SDL_INIT_VIDEO) != 0;
 
-    for (auto iter = cells.extBegin(); iter != cells.extEnd(); ++iter)
-    {
-        if (mCells.contains(iter->mId))
-            continue;
+    auto searchRange = [&](auto begin, auto end) -> Ptr {
+        for (auto iter = begin; iter != end; ++iter)
+        {
+            if (mCells.contains(iter->mId))
+                continue;
 
-        Ptr ptr = getPtrAndCache(name, insertCellStore(*iter));
+            if (hasVideo && (++scannedCells & 63u) == 0)
+                SDL_PumpEvents();
 
-        if (!ptr.isEmpty())
-            return ptr;
-    }
+            Ptr ptr = getPtrAndCache(name, insertCellStore(*iter));
+            if (!ptr.isEmpty())
+                return ptr;
+        }
+        return Ptr();
+    };
 
-    for (auto iter = cells.intBegin(); iter != cells.intEnd(); ++iter)
-    {
-        if (mCells.contains(iter->mId))
-            continue;
+    if (Ptr ptr = searchRange(cells.extBegin(), cells.extEnd()); !ptr.isEmpty())
+        return ptr;
 
-        Ptr ptr = getPtrAndCache(name, insertCellStore(*iter));
-
-        if (!ptr.isEmpty())
-            return ptr;
-    }
+    if (Ptr ptr = searchRange(cells.intBegin(), cells.intEnd()); !ptr.isEmpty())
+        return ptr;
 
     // giving up
     return Ptr();

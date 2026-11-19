@@ -324,8 +324,11 @@ namespace MWWorld
         }
         else
         {
-            for (int i = 0; i < 5; ++i)
-                MWBase::Environment::get().getScriptManager()->getGlobalScripts().run();
+            if (!bypass)
+            {
+                for (int i = 0; i < 5; ++i)
+                    MWBase::Environment::get().getScriptManager()->getGlobalScripts().run();
+            }
             if (!getPlayerPtr().isInCell())
             {
                 ESM::Position pos;
