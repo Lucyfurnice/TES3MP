@@ -31,8 +31,13 @@
 #include <components/misc/windows.hpp>
 #include <DbgHelp.h>
 // makes __argc and __argv available on windows
+#include <atomic>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#ifdef _DEBUG
+#include <crtdbg.h>
+#endif
 #include <exception>
 #include <sstream>
 
@@ -390,6 +395,37 @@ namespace
         writeWindowsCrashReport(reason.c_str(), &ctx);
         std::_Exit(1);
     }
+
+    void tes3mpAbortHandler(int)
+    {
+        CONTEXT ctx{};
+        RtlCaptureContext(&ctx);
+        writeWindowsCrashReport("SIGABRT received", &ctx);
+        std::_Exit(3);
+    }
+
+#if defined(_DEBUG)
+    int __cdecl tes3mpCrtReportHook(int reportType, char* message, int* returnValue)
+    {
+        if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
+        {
+            static std::atomic_flag sInReport = ATOMIC_FLAG_INIT;
+            if (!sInReport.test_and_set())
+            {
+                CONTEXT ctx{};
+                RtlCaptureContext(&ctx);
+                std::string header = "MSVC CRT report (type=" + std::to_string(reportType) + ")";
+                if (message != nullptr)
+                    header += std::string(": ") + message;
+                writeWindowsCrashReport(header.c_str(), &ctx);
+                sInReport.clear();
+            }
+        }
+        if (returnValue != nullptr)
+            *returnValue = 0;
+        return FALSE;
+    }
+#endif
 }
 #endif
 
@@ -398,6 +434,10 @@ int runApplication(int argc, char* argv[])
 #if defined(_WIN32)
     sPreviousExceptionFilter = SetUnhandledExceptionFilter(&tes3mpUnhandledExceptionFilter);
     std::set_terminate(&tes3mpTerminateHandler);
+    std::signal(SIGABRT, &tes3mpAbortHandler);
+#if defined(_DEBUG)
+    _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, &tes3mpCrtReportHook);
+#endif
 #endif
     Platform::init();
 

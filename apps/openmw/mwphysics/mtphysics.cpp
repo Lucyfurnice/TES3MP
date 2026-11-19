@@ -595,6 +595,8 @@ namespace MWPhysics
     void PhysicsTaskScheduler::rayTest(const btVector3& rayFromWorld, const btVector3& rayToWorld,
         btCollisionWorld::RayResultCallback& resultCallback) const
     {
+        if ((rayToWorld - rayFromWorld).length2() <= 1e-6f)
+            return;
         MaybeLock lock(mCollisionWorldMutex, mLockingPolicy);
         mCollisionWorld->rayTest(rayFromWorld, rayToWorld, resultCallback);
     }
@@ -620,6 +622,9 @@ namespace MWPhysics
         btTransform rayTo;
         rayTo.setIdentity();
         rayTo.setOrigin(target->getWorldTransform().getOrigin());
+
+        if ((rayTo.getOrigin() - from.getOrigin()).length2() <= 1e-6f)
+            return std::nullopt;
 
         btCollisionWorld::ClosestRayResultCallback cb(from.getOrigin(), rayTo.getOrigin());
 
@@ -767,6 +772,9 @@ namespace MWPhysics
             actor1->getCollisionObjectPosition() + osg::Vec3f(0, 0, actor1->getHalfExtents().z() * 0.9f)); // eye level
         btVector3 pos2 = Misc::Convert::toBullet(
             actor2->getCollisionObjectPosition() + osg::Vec3f(0, 0, actor2->getHalfExtents().z() * 0.9f));
+
+        if ((pos2 - pos1).length2() <= 1e-6f)
+            return true;
 
         btCollisionWorld::ClosestRayResultCallback resultCallback(pos1, pos2);
         resultCallback.m_collisionFilterGroup = CollisionType_AnyPhysical;

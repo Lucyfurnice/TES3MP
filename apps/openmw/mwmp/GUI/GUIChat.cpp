@@ -42,6 +42,7 @@ namespace mwmp
         windowState = CHAT_DISABLED;
         mCommandLine->setVisible(false);
         delay = 3; // 3 sec.
+        mCurrent = mCommandHistory.end();
     }
 
     void GUIChat::onOpen()

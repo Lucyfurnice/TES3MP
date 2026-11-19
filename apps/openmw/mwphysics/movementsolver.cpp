@@ -110,7 +110,8 @@ namespace MWPhysics
         resultCallback1.m_collisionFilterGroup = CollisionType_AnyPhysical;
         resultCallback1.m_collisionFilterMask = CollisionType_World | CollisionType_HeightMap;
 
-        collisionWorld->rayTest(from, to, resultCallback1);
+        if ((to - from).length2() > 1e-6f)
+            collisionWorld->rayTest(from, to, resultCallback1);
 
         if (resultCallback1.hasHit()
             && ((Misc::Convert::toOsg(resultCallback1.m_hitPointWorld) - tracer.mEndPos + offset).length2() > 35 * 35

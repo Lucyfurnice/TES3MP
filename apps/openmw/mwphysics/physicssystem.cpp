@@ -195,7 +195,7 @@ namespace MWPhysics
         const std::vector<MWWorld::ConstPtr>& ignore, const std::vector<MWWorld::Ptr>& targets, int mask,
         int group) const
     {
-        if (from == to)
+        if ((to - from).length2() <= 1e-6f)
         {
             RayCastingResult result;
             result.mHit = false;
