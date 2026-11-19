@@ -1,7 +1,9 @@
+#include <cstring>
 #include <iostream>
 #include "LangLua.hpp"
 #include <Script/Script.hpp>
 #include <Script/Types.hpp>
+#include <components/openmw-mp/TimedLog.hpp>
 
 std::set<std::string> LangLua::packagePath;
 std::set<std::string> LangLua::packageCPath;
@@ -31,6 +33,47 @@ LangLua::LangLua(lua_State *lua)
     this->lua = lua;
 }
 
+#ifdef _WIN32
+static int io2FallbackModule(lua_State* L)
+{
+    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "[Script]: Could not find io2 module; falling back to standard io library.");
+    lua_getglobal(L, "io");
+    return 1;
+}
+
+static int io2FallbackLoader(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    if (std::strcmp(name, "io2") != 0)
+    {
+        lua_pushstring(L, "\n\tno built-in fallback for module");
+        return 1;
+    }
+
+    lua_pushcfunction(L, io2FallbackModule);
+    return 1;
+}
+
+// Register io2 fallback at the end of package.loaders/searchers so an external io2.dll or io2.lua still takes precedence.
+static void registerIo2Fallback(lua_State* L)
+{
+    lua_getglobal(L, "package");
+#if LUA_VERSION_NUM >= 502
+    lua_getfield(L, -1, "searchers");
+    const size_t len = lua_rawlen(L, -1);
+#else
+    lua_getfield(L, -1, "loaders");
+    const size_t len = lua_objlen(L, -1);
+#endif
+    if (lua_istable(L, -1))
+    {
+        lua_pushcfunction(L, io2FallbackLoader);
+        lua_rawseti(L, -2, static_cast<int>(len + 1));
+    }
+    lua_pop(L, 2);
+}
+#endif
+
 LangLua::LangLua()
 {
     lua = luaL_newstate();
@@ -46,6 +89,9 @@ LangLua::LangLua()
     setLuaPath(lua, p.c_str());
     setLuaPath(lua, cp.c_str(), true);
 
+#ifdef _WIN32
+    registerIo2Fallback(lua);
+#endif
 }
 
 LangLua::~LangLua()

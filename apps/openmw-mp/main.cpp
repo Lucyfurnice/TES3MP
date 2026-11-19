@@ -132,8 +132,8 @@ boost::program_options::variables_map launchOptions(int argc, char *argv[], File
     bpo::variables_map variables;
     bpo::options_description desc;
 
+    Files::ConfigurationManager::addCommonOptions(desc);
     desc.add_options()
-            ("resources", bpo::value<Files::MaybeQuotedPath>()->default_value(Files::MaybeQuotedPath("resources")), "set resources directory")
             ("no-logs", bpo::value<bool>()->implicit_value(true)->default_value(false),
              "Do not write logs. Useful for daemonizing.");
 
@@ -147,7 +147,7 @@ boost::program_options::variables_map launchOptions(int argc, char *argv[], File
     return variables;
 }
 
-int main(int argc, char *argv[])
+int runServer(int argc, char *argv[])
 {
     Settings::Manager mgr;
     Files::ConfigurationManager cfgMgr;
@@ -312,8 +312,23 @@ int main(int argc, char *argv[])
     }
     catch (std::exception &e)
     {
-        LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, e.what());
-        Script::Call<Script::CallbackIdentity("OnServerScriptCrash")>(e.what());
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "%s", e.what());
+        try
+        {
+            Script::Call<Script::CallbackIdentity("OnServerScriptCrash")>(e.what());
+        }
+        catch (const std::exception &crashEx)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "OnServerScriptCrash failed: %s", crashEx.what());
+        }
+        catch (...)
+        {
+        }
+        if (!variables["no-logs"].as<bool>())
+        {
+            std::cout.rdbuf(cout_rdbuf);
+            std::cerr.rdbuf(cerr_rdbuf);
+        }
         throw; //fall through
     }
 
@@ -334,4 +349,24 @@ int main(int argc, char *argv[])
 
     breakpad_close();
     return code;
+}
+
+int main(int argc, char *argv[])
+{
+    try
+    {
+        return runServer(argc, argv);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Unhandled exception in tes3mp-server: " << e.what() << std::endl;
+        std::cerr.flush();
+        return 1;
+    }
+    catch (...)
+    {
+        std::cerr << "Unhandled unknown exception in tes3mp-server." << std::endl;
+        std::cerr.flush();
+        return 1;
+    }
 }
