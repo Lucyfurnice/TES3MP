@@ -159,8 +159,10 @@ MWWorld::Ptr MWWorld::WorldModel::getPtrAndCache(const ESM::RefId& name, CellSto
 {
     Ptr ptr = cellStore.getPtr(name);
 
-    if (!ptr.isEmpty() && ptr.isInCell())
+    if (!ptr.isEmpty() && ptr.isInCell() && !mIdCache.empty())
     {
+        if (mIdCacheIndex >= mIdCache.size())
+            mIdCacheIndex = 0;
         mIdCache[mIdCacheIndex].first = name;
         mIdCache[mIdCacheIndex].second = &cellStore;
         if (++mIdCacheIndex >= mIdCache.size())
@@ -533,7 +535,8 @@ bool MWWorld::WorldModel::readRecord(ESM::ESMReader& reader, uint32_t type)
 
 void MWWorld::WorldModel::clearCell(const ESM::Cell& cell)
 {
-    mIdCache.clear();
+    // Keep mIdCache sized to mPointersCacheSize while clearing stale CellStore pointers
+    std::fill(mIdCache.begin(), mIdCache.end(), std::make_pair(ESM::RefId(), static_cast<CellStore*>(nullptr)));
     mIdCacheIndex = 0;
 
     if (cell.isExterior())
