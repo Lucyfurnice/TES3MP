@@ -1176,7 +1176,7 @@ void OMW::Engine::go()
         if (!logo.empty())
             mWindowManager->playVideo(logo, /*allowSkipping*/ true, /*overrideSounds*/ false);
     }
-    else
+    else if (mStateManager->getState() != MWState::StateManager::State_Running)
     {
         mStateManager->newGame(!mNewGame);
     }
