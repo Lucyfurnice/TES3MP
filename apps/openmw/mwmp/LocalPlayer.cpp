@@ -1445,15 +1445,28 @@ void LocalPlayer::setMarkLocation()
 
 void LocalPlayer::setSelectedSpell()
 {
+    if (selectedSpellId.empty() || selectedSpellId == "Empty{}")
+    {
+        MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();
+        return;
+    }
+
     MWWorld::Ptr ptrPlayer = getPlayerPtr();
 
     MWMechanics::CreatureStats& stats = ptrPlayer.getClass().getCreatureStats(ptrPlayer);
     MWMechanics::Spells& spells = stats.getSpells();
 
     const ESM::RefId spellId = ESM::RefId::stringRefId(selectedSpellId);
-    if (!spells.hasSpell(spellId))
+    if (spellId.empty())
+    {
+        MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();
         return;
- 
+    }
+
+    if (MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spellId) == nullptr
+        || !spells.hasSpell(spellId))
+        return;
+
     MWBase::Environment::get().getWindowManager()->setSelectedSpell(spellId,
         int(MWMechanics::getSpellSuccessChance(spellId, ptrPlayer)));
 }
@@ -1875,7 +1888,7 @@ void LocalPlayer::sendMarkLocation(const ESM::Cell& newMarkCell, const ESM::Posi
 void LocalPlayer::sendSelectedSpell(const std::string& newSelectedSpellId)
 {
     miscellaneousChangeType = mwmp::MISCELLANEOUS_CHANGE_TYPE::SELECTED_SPELL;
-    selectedSpellId = newSelectedSpellId;
+    selectedSpellId = (newSelectedSpellId == "Empty{}") ? std::string() : newSelectedSpellId;
 
     getNetworking()->getPlayerPacket(ID_PLAYER_MISCELLANEOUS)->setPlayer(this);
     getNetworking()->getPlayerPacket(ID_PLAYER_MISCELLANEOUS)->Send();

@@ -330,5 +330,6 @@ if (BUILD_WITH_CODE_COVERAGE)
 endif()
 
 if (WIN32 AND BUILD_OPENMW)
+    target_link_libraries(openmw dbghelp)
     INSTALL(TARGETS openmw RUNTIME DESTINATION ".")
 endif()

@@ -17,6 +17,7 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
+#include "../mwmp/GUIController.hpp"
 
 namespace MWLua
 {
@@ -55,6 +56,8 @@ namespace MWLua
             { MWGui::GM_LoadingWallpaper, "LoadingWallpaper" },
             { MWGui::GM_Jail, "Jail" },
             { MWGui::GM_QuickKeysMenu, "QuickKeysMenu" },
+            { static_cast<MWGui::GuiMode>(mwmp::GUIController::GM_TES3MP_InputBox), "TES3MP_InputBox" },
+            { static_cast<MWGui::GuiMode>(mwmp::GUIController::GM_TES3MP_ListBox), "TES3MP_ListBox" },
         };
 
         const auto nameToMode = [] {
@@ -245,7 +248,10 @@ namespace MWLua
             sol::table res(thisState, sol::create);
             int i = 1;
             for (MWGui::GuiMode m : windowManager->getGuiModeStack())
-                res[i++] = modeToName.at(m);
+            {
+                if (const auto it = modeToName.find(m); it != modeToName.end())
+                    res[i++] = it->second;
+            }
             return res;
         };
         api["_setUiModeStack"]

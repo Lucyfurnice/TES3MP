@@ -3,6 +3,9 @@
 #include <iostream>
 #include <string>
 
+#include <components/debug/debuglog.hpp>
+#include <components/misc/pathhelpers.hpp>
+#include <components/misc/strings/algorithm.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Utils.hpp>
 #include <components/openmw-mp/Version.hpp>
@@ -356,22 +359,35 @@ void Networking::connect(const std::string &ip, unsigned short port, std::vector
 void Networking::preInit(std::vector<std::string> &content, Files::Collections &collections)
 {
     PacketPreInit::PluginContainer checksums;
-    std::vector<std::string>::const_iterator it(content.begin());
-    for (int idx = 0; it != content.end(); ++it, ++idx)
+    int idx = 0;
+    for (const std::string& contentFile : content)
     {
-        std::filesystem::path filename(*it);
-        const Files::MultiDirCollection& col = collections.getCollection(filename.extension().string());
-        if (col.doesExist(*it))
+        // OpenMW 0.51.0 injects builtin.omwscripts into mContentFiles for OMWScriptsLoader,
+        // whereas TES3MP servers only expect TES3/OpenMW data plugins in requiredDataFiles.
+        if (Misc::StringUtils::ciEqual(contentFile, "builtin.omwscripts"))
+            continue;
+
+        const std::string_view extension = Misc::getFileExtension(contentFile);
+        const Files::MultiDirCollection& col = collections.getCollection(extension);
+        if (col.doesExist(contentFile))
         {
             PacketPreInit::HashList hashList;
-            unsigned crc32 = Utils::crc32Checksum(col.getPath(*it).string());
+            unsigned crc32 = Utils::crc32Checksum(col.getPath(contentFile).string());
             hashList.push_back(crc32);
-            checksums.push_back(make_pair(*it, hashList));
+            checksums.push_back(make_pair(contentFile, hashList));
 
-            LOG_APPEND(TimedLog::LOG_WARN, "idx: %d\tchecksum: %X\tfile: %s\n", idx, crc32, col.getPath(*it).string().c_str());
+            LOG_APPEND(TimedLog::LOG_WARN, "idx: %d\tchecksum: %X\tfile: %s\n", idx, crc32, col.getPath(contentFile).string().c_str());
+            ++idx;
         }
         else
+        {
+            Log(Debug::Error) << "Plugin doesn't exist: \"" << contentFile << "\" (extension: \"" << extension << "\")";
+            for (const std::string& configuredFile : content)
+                Log(Debug::Error) << "  configured content file: \"" << configuredFile << "\"";
+            for (const std::filesystem::path& dataPath : collections.getPaths())
+                Log(Debug::Error) << "  active data dir: " << dataPath;
             throw std::runtime_error("Plugin doesn't exist.");
+        }
     }
 
     PacketPreInit packetPreInit(peer);

@@ -177,6 +177,7 @@ void Networking::processPlayerPacket(RakNet::Packet *packet)
         myPacket->setPlayer(player);
         myPacket->Read();
         myPacket->Send(true);
+        return;
     }
 
     if (player->getLoadState() == Player::NOTLOADED)
