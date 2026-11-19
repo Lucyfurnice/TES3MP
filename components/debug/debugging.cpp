@@ -179,29 +179,6 @@ namespace Debug
             }
         };
 
-#if defined _WIN32 && defined _DEBUG
-        class DebugOutput : public DebugOutputBase
-        {
-        public:
-            std::streamsize writeImpl(const char* str, std::streamsize size, Level debugLevel)
-            {
-                if (size > std::numeric_limits<int>::max())
-                    OutputDebugStringW(L"Next line truncated...");
-                auto wideSize = MultiByteToWideChar(CP_UTF8, 0, str,
-                    static_cast<int>(std::min<std::streamsize>(size, std::numeric_limits<int>::max())), nullptr, 0);
-                std::wstring wide(wideSize, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, str,
-                    static_cast<int>(std::min<std::streamsize>(size, std::numeric_limits<int>::max())), wide.data(),
-                    wideSize);
-                // Write string to Visual Studio Debug output
-                OutputDebugStringW(wide.c_str());
-                return size;
-            }
-
-            virtual ~DebugOutput() = default;
-        };
-#else
-
         struct Record
         {
             std::string mValue;
@@ -311,6 +288,59 @@ namespace Debug
             std::deque<Record>& mBuffer;
         };
 
+#if defined(_WIN32) && defined(_DEBUG)
+        class DebugOutputSink
+        {
+        public:
+            void write(const char* str, std::streamsize size, Level /*debugLevel*/)
+            {
+                if (size > std::numeric_limits<int>::max())
+                    OutputDebugStringW(L"Next line truncated...");
+                const int clampedSize = static_cast<int>(std::min<std::streamsize>(size, std::numeric_limits<int>::max()));
+                auto wideSize = MultiByteToWideChar(CP_UTF8, 0, str, clampedSize, nullptr, 0);
+                std::wstring wide(wideSize, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, str, clampedSize, wide.data(), wideSize);
+                // Write string to Visual Studio Debug output
+                OutputDebugStringW(wide.c_str());
+            }
+        };
+
+        template <class First, class Second>
+        class CombinedSink
+        {
+        public:
+            CombinedSink(First first, Second second)
+                : mFirst(first)
+                , mSecond(second)
+            {
+            }
+
+            void write(const char* str, std::streamsize size, Level debugLevel)
+            {
+                mFirst.write(str, size, debugLevel);
+                mSecond.write(str, size, debugLevel);
+            }
+
+        private:
+            First mFirst;
+            Second mSecond;
+        };
+
+        using ConsoleSink = CombinedSink<Coloured, DebugOutputSink>;
+
+        ConsoleSink makeConsoleSink(std::ostream& stream)
+        {
+            return ConsoleSink(Coloured(stream), DebugOutputSink());
+        }
+#else
+        using ConsoleSink = Coloured;
+
+        ConsoleSink makeConsoleSink(std::ostream& stream)
+        {
+            return ConsoleSink(stream);
+        }
+#endif
+
         template <class First, class Second>
         class Tee : public DebugOutputBase
         {
@@ -332,7 +362,6 @@ namespace Debug
             First mFirst;
             Second mSecond;
         };
-#endif
 
         Level toLevel(std::string_view value)
         {
@@ -355,14 +384,10 @@ namespace Debug
         static std::unique_ptr<std::mutex> rawStderrMutex = nullptr;
         static std::ofstream logfile;
 
-#if defined(_WIN32) && defined(_DEBUG)
-        static boost::iostreams::stream_buffer<DebugOutput> sb;
-#else
-        static boost::iostreams::stream_buffer<Tee<Identity, Coloured>> standardOut;
-        static boost::iostreams::stream_buffer<Tee<Identity, Coloured>> standardErr;
-        static boost::iostreams::stream_buffer<Tee<Buffer, Coloured>> bufferedOut;
-        static boost::iostreams::stream_buffer<Tee<Buffer, Coloured>> bufferedErr;
-#endif
+        static boost::iostreams::stream_buffer<Tee<Identity, ConsoleSink>> standardOut;
+        static boost::iostreams::stream_buffer<Tee<Identity, ConsoleSink>> standardErr;
+        static boost::iostreams::stream_buffer<Tee<Buffer, ConsoleSink>> bufferedOut;
+        static boost::iostreams::stream_buffer<Tee<Buffer, ConsoleSink>> bufferedErr;
     }
 
     std::ostream& getRawStdout()
@@ -401,7 +426,6 @@ namespace Debug
         Log::sMinDebugLevel = getDebugLevel();
         Log::sWriteLevel = true;
 
-#if !(defined(_WIN32) && defined(_DEBUG))
         const std::string logName = Misc::StringUtils::lowerCase(appName) + ".log";
         logfile.open(logDir / logName, std::ios::out);
 
@@ -412,12 +436,11 @@ namespace Debug
 
         globalBuffer.clear();
 
-        standardOut.open(Tee(log, Coloured(*rawStdout)));
-        standardErr.open(Tee(log, Coloured(*rawStderr)));
+        standardOut.open(Tee(log, makeConsoleSink(*rawStdout)));
+        standardErr.open(Tee(log, makeConsoleSink(*rawStderr)));
 
         std::cout.rdbuf(&standardOut);
         std::cerr.rdbuf(&standardErr);
-#endif
 
 #ifdef _WIN32
         if (Crash::CrashCatcher::instance())
@@ -438,20 +461,13 @@ namespace Debug
         rawStderr = std::make_unique<std::ostream>(std::cerr.rdbuf());
         rawStderrMutex = std::make_unique<std::mutex>();
 
-#if defined(_WIN32) && defined(_DEBUG)
-        // Redirect cout and cerr to VS debug output when running in debug mode
-        sb.open(DebugOutput());
-        std::cout.rdbuf(&sb);
-        std::cerr.rdbuf(&sb);
-#else
         constexpr std::size_t bufferCapacity = 1024;
 
-        bufferedOut.open(Tee(Buffer(bufferCapacity, globalBuffer), Coloured(*rawStdout)));
-        bufferedErr.open(Tee(Buffer(bufferCapacity, globalBuffer), Coloured(*rawStderr)));
+        bufferedOut.open(Tee(Buffer(bufferCapacity, globalBuffer), makeConsoleSink(*rawStdout)));
+        bufferedErr.open(Tee(Buffer(bufferCapacity, globalBuffer), makeConsoleSink(*rawStderr)));
 
         std::cout.rdbuf(&bufferedOut);
         std::cerr.rdbuf(&bufferedErr);
-#endif
 
         int ret = 0;
         try
