@@ -3,13 +3,58 @@
 #include <iostream>
 
 #include <components/esm/attr.hpp>
-#include <components/esm/loadskil.hpp>
-#include <components/misc/stringops.hpp>
+#include <components/esm3/loadskil.hpp>
+#include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/lower.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <apps/openmw-mp/Networking.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
+
+namespace
+{
+    const std::string sAttributeNames[ESM::Attribute::Length] = {
+        "Strength",
+        "Intelligence",
+        "Willpower",
+        "Agility",
+        "Speed",
+        "Endurance",
+        "Personality",
+        "Luck",
+    };
+
+    const std::string sSkillNames[ESM::Skill::Length] = {
+        "Block",
+        "Armorer",
+        "Mediumarmor",
+        "Heavyarmor",
+        "Bluntweapon",
+        "Longblade",
+        "Axe",
+        "Spear",
+        "Athletics",
+        "Enchant",
+        "Destruction",
+        "Alteration",
+        "Illusion",
+        "Conjuration",
+        "Mysticism",
+        "Restoration",
+        "Alchemy",
+        "Unarmored",
+        "Security",
+        "Sneak",
+        "Acrobatics",
+        "Lightarmor",
+        "Shortblade",
+        "Marksman",
+        "Mercantile",
+        "Speechcraft",
+        "Handtohand",
+    };
+}
 
 int StatsFunctions::GetAttributeCount() noexcept
 {
@@ -25,7 +70,7 @@ int StatsFunctions::GetAttributeId(const char *name) noexcept
 {
     for (int x = 0; x < ESM::Attribute::Length; x++)
     {
-        if (Misc::StringUtils::ciEqual(name, ESM::Attribute::sAttributeNames[x]))
+        if (Misc::StringUtils::ciEqual(name, sAttributeNames[x]))
         {
             return x;
         }
@@ -38,7 +83,7 @@ int StatsFunctions::GetSkillId(const char *name) noexcept
 {
     for (int x = 0; x < ESM::Skill::Length; x++)
     {
-        if (Misc::StringUtils::ciEqual(name, ESM::Skill::sSkillNames[x]))
+        if (Misc::StringUtils::ciEqual(name, sSkillNames[x]))
         {
             return x;
         }
@@ -52,7 +97,7 @@ const char *StatsFunctions::GetAttributeName(unsigned short attributeId) noexcep
     if (attributeId >= ESM::Attribute::Length)
         return "invalid";
 
-    return ESM::Attribute::sAttributeNames[attributeId].c_str();
+    return sAttributeNames[attributeId].c_str();
 }
 
 const char *StatsFunctions::GetSkillName(unsigned short skillId) noexcept
@@ -60,7 +105,7 @@ const char *StatsFunctions::GetSkillName(unsigned short skillId) noexcept
     if (skillId >= ESM::Skill::Length)
         return "invalid";
 
-    return ESM::Skill::sSkillNames[skillId].c_str();
+    return sSkillNames[skillId].c_str();
 }
 
 const char *StatsFunctions::GetName(unsigned short pid) noexcept
@@ -77,7 +122,7 @@ const char *StatsFunctions::GetRace(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, 0);
 
-    return player->npc.mRace.c_str();
+    return player->npc.mRace.getRefIdString().c_str();
 }
 
 const char *StatsFunctions::GetHead(unsigned short pid) noexcept
@@ -85,7 +130,7 @@ const char *StatsFunctions::GetHead(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, 0);
 
-    return player->npc.mHead.c_str();
+    return player->npc.mHead.getRefIdString().c_str();
 }
 
 const char *StatsFunctions::GetHairstyle(unsigned short pid) noexcept
@@ -93,7 +138,7 @@ const char *StatsFunctions::GetHairstyle(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, 0);
 
-    return player->npc.mHair.c_str();
+    return player->npc.mHair.getRefIdString().c_str();
 }
 
 int StatsFunctions::GetIsMale(unsigned short pid) noexcept
@@ -296,13 +341,14 @@ void StatsFunctions::SetRace(unsigned short pid, const char *race) noexcept
     Player *player;
     GET_PLAYER(pid, player,);
 
-    if (player->npc.mRace == race)
+    ESM::RefId raceId = ESM::RefId::stringRefId(race);
+    if (player->npc.mRace == raceId)
         return;
 
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Setting race for %s: %s -> %s", player->npc.mName.c_str(),
-                       player->npc.mRace.c_str(), race);
+                       player->npc.mRace.getRefIdString().c_str(), race);
 
-    player->npc.mRace = race;
+    player->npc.mRace = raceId;
 }
 
 void StatsFunctions::SetHead(unsigned short pid, const char *head) noexcept
@@ -310,10 +356,11 @@ void StatsFunctions::SetHead(unsigned short pid, const char *head) noexcept
     Player *player;
     GET_PLAYER(pid, player,);
 
-    if (player->npc.mHead == head)
+    ESM::RefId headId = ESM::RefId::stringRefId(head);
+    if (player->npc.mHead == headId)
         return;
 
-    player->npc.mHead = head;
+    player->npc.mHead = headId;
 }
 
 void StatsFunctions::SetHairstyle(unsigned short pid, const char *hairstyle) noexcept
@@ -321,10 +368,11 @@ void StatsFunctions::SetHairstyle(unsigned short pid, const char *hairstyle) noe
     Player *player;
     GET_PLAYER(pid, player,);
 
-    if (player->npc.mHair == hairstyle)
+    ESM::RefId hairId = ESM::RefId::stringRefId(hairstyle);
+    if (player->npc.mHair == hairId)
         return;
 
-    player->npc.mHair = hairstyle;
+    player->npc.mHair = hairId;
 }
 
 void StatsFunctions::SetIsMale(unsigned short pid, int state) noexcept

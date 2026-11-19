@@ -237,5 +237,5 @@ void Cell::sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *
 
 std::string Cell::getShortDescription() const
 {
-    return cell.getShortDescription();
+    return Utils::getCellDescription(cell);
 }

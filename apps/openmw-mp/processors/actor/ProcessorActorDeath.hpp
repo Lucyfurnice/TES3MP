@@ -20,7 +20,7 @@ namespace mwmp
 
             if (serverCell != nullptr && *serverCell->getAuthority() == actorList.guid)
             {
-                Script::Call<Script::CallbackIdentity("OnActorDeath")>(player.getId(), actorList.cell.getShortDescription().c_str());
+                Script::Call<Script::CallbackIdentity("OnActorDeath")>(player.getId(), Utils::getCellDescription(actorList.cell).c_str());
 
                 serverCell->sendToLoaded(&packet, &actorList);
             }

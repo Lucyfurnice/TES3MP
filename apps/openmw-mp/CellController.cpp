@@ -98,14 +98,14 @@ Cell *CellController::addCell(ESM::Cell cellData)
     Cell *cell;
     if (it == cells.end())
     {
-        LOG_APPEND(TimedLog::LOG_INFO, "- Adding %s to CellController", cellData.getShortDescription().c_str());
+        LOG_APPEND(TimedLog::LOG_INFO, "- Adding %s to CellController", Utils::getCellDescription(cellData).c_str());
 
         cell = new Cell(cellData);
         cells.push_back(cell);
     }
     else
     {
-        LOG_APPEND(TimedLog::LOG_INFO, "- Found %s in CellController", cellData.getShortDescription().c_str());
+        LOG_APPEND(TimedLog::LOG_INFO, "- Found %s in CellController", Utils::getCellDescription(cellData).c_str());
         cell = *it;
     }
 

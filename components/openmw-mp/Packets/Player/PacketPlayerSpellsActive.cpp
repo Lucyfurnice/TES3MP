@@ -1,5 +1,6 @@
 #include "PacketPlayerSpellsActive.hpp"
 #include <components/openmw-mp/NetworkMessages.hpp>
+#include <components/openmw-mp/Utils.hpp>
 
 using namespace mwmp;
 
@@ -68,8 +69,15 @@ void PacketPlayerSpellsActive::Packet(RakNet::BitStream *newBitstream, bool send
 
         for (auto&& effect : activeSpell.params.mEffects)
         {
-            RW(effect.mEffectId, send);
-            RW(effect.mArg, send);
+            int32_t effectId = send ? ESM::MagicEffect::refIdToIndex(effect.mEffectId) : -1;
+            int32_t arg = send ? Utils::activeEffectArgToInt(effect) : -1;
+            RW(effectId, send);
+            RW(arg, send);
+            if (!send)
+            {
+                effect.mEffectId = ESM::MagicEffect::indexToRefId(effectId);
+                Utils::intToActiveEffectArg(effect, arg);
+            }
             RW(effect.mMagnitude, send);
             RW(effect.mDuration, send);
             RW(effect.mTimeLeft, send);

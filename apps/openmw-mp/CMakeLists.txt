@@ -17,10 +17,14 @@ endif(ENABLE_BREAKPAD)
 option(BUILD_WITH_LUA "Enable Lua language" ON)
 if(BUILD_WITH_LUA)
 
-    find_package(LuaJit REQUIRED)
+    if(NOT LUA_LIBRARIES)
+        find_package(LuaJit REQUIRED)
+        set(LUA_INCLUDE_DIR ${LuaJit_INCLUDE_DIRS})
+        set(LUA_LIBRARIES ${LuaJit_LIBRARIES})
+    endif()
 
-    MESSAGE(STATUS "Found LuaJit_LIBRARIES: ${LuaJit_LIBRARIES}")
-    MESSAGE(STATUS "Found LuaJit_INCLUDE_DIRS: ${LuaJit_INCLUDE_DIRS}")
+    MESSAGE(STATUS "Found LUA_LIBRARIES: ${LUA_LIBRARIES}")
+    MESSAGE(STATUS "Found LUA_INCLUDE_DIR: ${LUA_INCLUDE_DIR}")
 
     set(LuaScript_Sources
             Script/LangLua/LangLua.cpp
@@ -28,8 +32,8 @@ if(BUILD_WITH_LUA)
     set(LuaScript_Headers ${LUA_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/LuaBridge ${CMAKE_SOURCE_DIR}/extern/LuaBridge/detail
             Script/LangLua/LangLua.hpp)
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DENABLE_LUA")
-    include_directories(SYSTEM ${LuaJit_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/extern/LuaBridge)
+    add_compile_definitions(ENABLE_LUA)
+    include_directories(SYSTEM ${LUA_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/LuaBridge)
 endif(BUILD_WITH_LUA)
 
 include_directories(${CMAKE_SOURCE_DIR}/extern/PicoSHA2)
@@ -159,30 +163,34 @@ add_executable(tes3mp-server
         ${APPLE_BUNDLE_RESOURCES}
         )
 
-target_compile_options(tes3mp-server PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/permissive->)
+target_compile_options(tes3mp-server PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/permissive-> $<$<CXX_COMPILER_ID:MSVC>:/templateDepth:2048>)
 
 if (OPENMW_MP_BUILD)
 	target_compile_options(tes3mp-server PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/MP>)
 endif()
 
 set_target_properties(tes3mp-server PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS YES
+    CXX_EXTENSIONS OFF
 )
 
 if (UNIX)
 	target_compile_options(tes3mp-server PRIVATE -Wno-ignored-qualifiers)
 endif()
 
+target_include_directories(tes3mp-server PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/extern
+    ${RakNet_INCLUDES}
+)
+
 target_link_libraries(tes3mp-server
-    #${Boost_SYSTEM_LIBRARY}
-    #${Boost_THREAD_LIBRARY}
-    #${Boost_FILESYSTEM_LIBRARY}
-    #${Boost_PROGRAM_OPTIONS_LIBRARY}
     ${RakNet_LIBRARY}
     components
-    ${LuaJit_LIBRARIES}
+    ${LUA_LIBRARIES}
+    LuaBridge
+    PicoSHA2
     ${Breakpad_Library}
 )
 

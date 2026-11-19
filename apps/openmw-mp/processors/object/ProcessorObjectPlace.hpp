@@ -23,7 +23,7 @@ namespace mwmp
                 objectList.baseObjects.at(i).mpNum = mwmp::Networking::getPtr()->incrementMpNum();
             }
 
-            Script::Call<Script::CallbackIdentity("OnObjectPlace")>(player.getId(), objectList.cell.getShortDescription().c_str());
+            Script::Call<Script::CallbackIdentity("OnObjectPlace")>(player.getId(), Utils::getCellDescription(objectList.cell).c_str());
         }
     };
 }

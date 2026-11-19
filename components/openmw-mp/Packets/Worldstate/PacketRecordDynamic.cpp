@@ -183,7 +183,7 @@ void PacketRecordDynamic::Packet(RakNet::BitStream *newBitstream, bool send)
             RW(recordData.mIcon, send, true);
             RW(recordData.mData.mWeight, send);
             RW(recordData.mData.mValue, send);
-            RW(recordData.mData.mAutoCalc, send);
+            RW(recordData.mData.mFlags, send);
             RW(recordData.mScript, send, true);
             ProcessEffects(recordData.mEffects, send);
 
@@ -350,7 +350,7 @@ void PacketRecordDynamic::Packet(RakNet::BitStream *newBitstream, bool send)
             RW(recordData.mIcon, send, true);
             RW(recordData.mData.mWeight, send);
             RW(recordData.mData.mValue, send);
-            RW(recordData.mData.mIsKey, send);
+            RW(recordData.mData.mFlags, send);
             RW(recordData.mScript, send, true);
 
             if (!record.baseId.empty())
@@ -665,9 +665,30 @@ void PacketRecordDynamic::Packet(RakNet::BitStream *newBitstream, bool send)
             RW(recordData.mIcon, send, true);
             RW(recordData.mData.mWeight, send);
             RW(recordData.mData.mValue, send);
-            RW(recordData.mData.mEffectID, send);
-            RW(recordData.mData.mAttributes, send);
-            RW(recordData.mData.mSkills, send);
+            int32_t effectID[4];
+            int32_t attributes[4];
+            int32_t skills[4];
+            if (send)
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    effectID[i] = ESM::MagicEffect::refIdToIndex(recordData.mData.mEffectID[i]);
+                    attributes[i] = ESM::Attribute::refIdToIndex(recordData.mData.mAttributes[i]);
+                    skills[i] = ESM::Skill::refIdToIndex(recordData.mData.mSkills[i]);
+                }
+            }
+            RW(effectID, send);
+            RW(attributes, send);
+            RW(skills, send);
+            if (!send)
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    recordData.mData.mEffectID[i] = ESM::MagicEffect::indexToRefId(effectID[i]);
+                    recordData.mData.mAttributes[i] = ESM::Attribute::indexToRefId(attributes[i]);
+                    recordData.mData.mSkills[i] = ESM::Skill::indexToRefId(skills[i]);
+                }
+            }
             RW(recordData.mScript, send, true);
 
             if (!record.baseId.empty())
@@ -949,15 +970,27 @@ void PacketRecordDynamic::ProcessEffects(ESM::EffectList &effectList, bool send)
 
     for (auto &&effect : effectList.mList)
     {
-        RW(effect.mEffectID, send);
-        RW(effect.mAttribute, send);
-        RW(effect.mSkill, send);
-        RW(effect.mRange, send);
-        RW(effect.mArea, send);
-        RW(effect.mDuration, send);
-        RW(effect.mMagnMax, send);
-        RW(effect.mMagnMin, send);
+        short effectId = send ? static_cast<short>(ESM::MagicEffect::refIdToIndex(effect.mData.mEffectID)) : -1;
+        signed char attribute = send ? static_cast<signed char>(ESM::Attribute::refIdToIndex(effect.mData.mAttribute)) : -1;
+        signed char skill = send ? static_cast<signed char>(ESM::Skill::refIdToIndex(effect.mData.mSkill)) : -1;
+        RW(effectId, send);
+        RW(attribute, send);
+        RW(skill, send);
+        if (!send)
+        {
+            effect.mData.mEffectID = ESM::MagicEffect::indexToRefId(effectId);
+            effect.mData.mAttribute = ESM::Attribute::indexToRefId(attribute);
+            effect.mData.mSkill = ESM::Skill::indexToRefId(skill);
+        }
+        RW(effect.mData.mRange, send);
+        RW(effect.mData.mArea, send);
+        RW(effect.mData.mDuration, send);
+        RW(effect.mData.mMagnMax, send);
+        RW(effect.mData.mMagnMin, send);
     }
+
+    if (!send)
+        effectList.updateIndexes();
 }
 
 void PacketRecordDynamic::ProcessBodyParts(ESM::PartReferenceList &partList, bool send)
@@ -1019,7 +1052,7 @@ void PacketRecordDynamic::ProcessInventoryList(std::vector<mwmp::Item> &inventor
         if (!send)
         {
             ESM::ContItem contItem;
-            contItem.mItem.assign(item.refId);
+            contItem.mItem = ESM::RefId::stringRefId(item.refId);
             contItem.mCount = item.count;
             inventoryList.mList.push_back(contItem);
         }

@@ -6,6 +6,11 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
+endif()
+
 project(OpenMW)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -45,6 +50,9 @@ option(BUILD_NAVMESHTOOL        "Build navmesh tool" ON)
 option(BUILD_BULLETOBJECTTOOL   "Build Bullet object tool" ON)
 option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
 option(BUILD_OPENMW_TESTS       "Build OpenMW tests" OFF)
+option(BUILD_OPENMW_MP          "Build OpenMW-MP" ON)
+option(BUILD_BROWSER            "Build tes3mp Server Browser" OFF)
+option(BUILD_MASTER             "Build tes3mp Master Server" OFF)
 option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MSVC (alternative to ccache)" ON)
 
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
@@ -71,6 +79,10 @@ if (APPLE)
 endif (APPLE)
 
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/)
+
+if (WIN32 AND EXISTS "D:/toolchain/__staging__/vcpkg/installed/x64-windows")
+    list(APPEND CMAKE_PREFIX_PATH "D:/toolchain/__staging__/vcpkg/installed/x64-windows")
+endif()
 
 if (ANDROID)
     set(CMAKE_FIND_ROOT_PATH ${OPENMW_DEPENDENCIES_DIR} "${CMAKE_FIND_ROOT_PATH}")
@@ -127,7 +139,7 @@ configure_file ("${OpenMW_SOURCE_DIR}/docs/mainpage.hpp.cmake" "${OpenMW_BINARY_
 option(QT_STATIC "Link static build of Qt into the binaries" FALSE)
 
 option(OPENMW_USE_SYSTEM_BULLET "Use system provided bullet physics library" ON)
-if(OPENMW_USE_SYSTEM_BULLET)
+if((BUILD_OPENMW OR BUILD_OPENCS) AND OPENMW_USE_SYSTEM_BULLET)
     set(_bullet_static_default OFF)
 else()
     set(_bullet_static_default ON)
@@ -262,6 +274,9 @@ if(MSVC)
     add_compile_options("/utf-8")
 endif()
 
+find_package(RakNet REQUIRED)
+include_directories(${RakNet_INCLUDES})
+
 # Dependencies
 if (APPLE)
     # Force CMake to use the installed version of OpenGL on macOS
@@ -327,7 +342,7 @@ else()
     set(_yaml_cpp_static_default ON)
 endif()
 option(YAML_CPP_STATIC "Link static build of yaml-cpp into the binaries" ${_yaml_cpp_static_default})
-if (OPENMW_USE_SYSTEM_YAML_CPP)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND OPENMW_USE_SYSTEM_YAML_CPP)
     find_package(yaml-cpp REQUIRED)
 endif()
 
@@ -340,6 +355,7 @@ add_subdirectory(extern)
 
 # Sound setup
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 # Require at least ffmpeg 3.2 for now
 SET(FFVER_OK FALSE)
 
@@ -391,6 +407,7 @@ if (USE_SYSTEM_TINYXML)
     add_compile_definitions(TIXML_USE_STL)
     include_directories(SYSTEM ${TinyXML_INCLUDE_DIRS})
 endif()
+endif()
 
 # Platform specific
 if (WIN32)
@@ -413,7 +430,7 @@ if (WIN32)
     )
 endif()
 
-if(OPENMW_USE_SYSTEM_BULLET)
+if((BUILD_OPENMW OR BUILD_OPENCS) AND OPENMW_USE_SYSTEM_BULLET)
     set(REQUIRED_BULLET_VERSION 286) # Bullet 286 required due to runtime bugfixes for btCapsuleShape
     if (DEFINED ENV{TRAVIS_BRANCH} OR DEFINED ENV{APPVEYOR})
         set(REQUIRED_BULLET_VERSION 283) # but for build testing, 283 is fine
@@ -491,7 +508,9 @@ if(OPENMW_USE_SYSTEM_MYGUI)
     find_package(MyGUI 3.4.3 REQUIRED)
 endif()
 find_package(SDL2 2.0.20 REQUIRED)
-find_package(OpenAL REQUIRED)
+if (BUILD_OPENMW OR BUILD_OPENCS)
+    find_package(OpenAL REQUIRED)
+endif()
 find_package(ZLIB REQUIRED)
 
 option(USE_LUAJIT "Switch Lua/LuaJit (TRUE is highly recommended)" TRUE)
@@ -499,6 +518,9 @@ if(USE_LUAJIT)
     find_package(LuaJit REQUIRED)
     set(LUA_INCLUDE_DIR ${LuaJit_INCLUDE_DIR})
     set(LUA_LIBRARIES ${LuaJit_LIBRARIES})
+    if(NOT EXISTS "${LUA_INCLUDE_DIR}/luajit.h")
+        add_compile_definitions(NO_LUAJIT)
+    endif()
 else(USE_LUAJIT)
     find_package(Lua REQUIRED)
     add_compile_definitions(NO_LUAJIT)
@@ -621,8 +643,10 @@ endif()
 
 # Extern
 
-add_subdirectory (extern/osg-ffmpeg-videoplayer)
-add_subdirectory (extern/oics)
+if (BUILD_OPENMW OR BUILD_OPENCS)
+    add_subdirectory (extern/osg-ffmpeg-videoplayer)
+    add_subdirectory (extern/oics)
+endif()
 add_subdirectory (extern/Base64)
 if (BUILD_OPENCS OR BUILD_OPENCS_TESTS)
     add_subdirectory (extern/osgQt)
@@ -678,6 +702,14 @@ endif()
 add_subdirectory (components)
 
 # Apps and tools
+if (BUILD_OPENMW_MP)
+    add_subdirectory( apps/openmw-mp )
+endif()
+
+if (BUILD_MASTER)
+    add_subdirectory( apps/master )
+endif()
+
 if (BUILD_OPENMW OR BUILD_OPENMW_TESTS)
     add_subdirectory( apps/openmw )
 endif()
@@ -710,7 +742,7 @@ if (BUILD_WIZARD)
     add_subdirectory(apps/wizard)
 endif()
 
-if (BUILD_NIFTEST)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND BUILD_NIFTEST)
     add_subdirectory(apps/niftest)
 endif()
 
@@ -722,11 +754,11 @@ if (BUILD_BENCHMARKS)
     add_subdirectory(apps/benchmarks)
 endif()
 
-if (BUILD_NAVMESHTOOL)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND BUILD_NAVMESHTOOL)
     add_subdirectory(apps/navmeshtool)
 endif()
 
-if (BUILD_BULLETOBJECTTOOL)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND BUILD_BULLETOBJECTTOOL)
     add_subdirectory(apps/bulletobjecttool)
 endif()
 

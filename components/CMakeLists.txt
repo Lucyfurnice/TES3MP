@@ -57,6 +57,7 @@ list(APPEND COMPONENT_FILES "${OpenMW_BINARY_DIR}/${OSG_PLUGIN_CHECKER_CPP_FILE}
 
 # source files
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (lua
     luastate scriptscontainer asyncpackage utilpackage serialization configuration l10n storage utf8
     shapes/box inputactions yamlloader scripttracker luastateptr
@@ -66,6 +67,11 @@ copy_resource_file("lua/util.lua" "${OPENMW_RESOURCES_ROOT}" "resources/lua_libs
 add_component_dir (l10n
     messagebundles manager
     )
+
+add_component_dir (settings
+    shadermanager
+    )
+endif()
 
 add_component_dir (settings
     categories
@@ -102,11 +108,11 @@ add_component_dir (settings
     sanitizerimpl
     settings
     settingvalue
-    shadermanager
     values
     windowmode
     )
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (bgsm
     stream file
     )
@@ -155,13 +161,14 @@ add_component_dir (nifosg
 add_component_dir (nifbullet
     bulletnifloader
     )
+endif()
 
 add_component_dir (toutf8
     tablesgen
     toutf8
     )
 
-add_component_dir(esm attr common defs esmcommon records util luascripts format refid esmbridge esmterrain
+add_component_dir(esm attr common defs esmcommon records util format refid esmbridge esmterrain
     formid
     fourcc
     stringrefid
@@ -174,9 +181,13 @@ add_component_dir(esm attr common defs esmcommon records util luascripts format 
     exteriorcelllocation
     )
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
+add_component_dir(esm luascripts)
+
 add_component_dir(fx pass technique lexer lexertypes parseconstants widgets stateupdater)
 
 add_component_dir(std140 ubo)
+endif()
 
 add_component_dir (esm3
     esmreader esmwriter loadacti loadalch loadappa loadarmo loadbody loadbook loadbsgn loadcell
@@ -192,6 +203,7 @@ add_component_dir (esm3
     refnum actoridconverter
     )
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (esmterrain
     gridsampling
     storage
@@ -294,6 +306,7 @@ add_component_dir (esm4
     typetraits
     vertex
 )
+endif()
 
 add_component_dir (misc
     barrier budgetmeasurement color compression constants convert coordinateconverter display endianness float16 frameratelimiter
@@ -305,12 +318,18 @@ add_component_dir (misc/strings
     algorithm conversion format lower
     )
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (stereo
     frustum multiview stereomanager types
     )
 
 add_component_dir (debug
-    debugging debuglog gldebug debugdraw writeflags
+    gldebug debugdraw
+    )
+endif()
+
+add_component_dir (debug
+    debugging debuglog writeflags
     )
 
 IF(NOT WIN32 AND NOT APPLE)
@@ -343,6 +362,7 @@ add_component_dir (translation
     translation
     )
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (terrain
     storage world buffercache defs terraingrid material terraindrawable texturemanager chunkmanager compositemaprenderer
     quadtreeworld quadtreenode viewdata cellborder view heightcull
@@ -375,15 +395,90 @@ add_component_dir (sdlutil
     sdlvideowrapper
     vsyncmode
     )
+endif()
 
 add_component_dir (version
     version
+    )
+
+add_component_dir (openmw-mp
+    TimedLog Utils ErrorMessages NetworkMessages Version
+    )
+
+add_component_dir (openmw-mp/Base
+    BaseActor BaseObject BasePacketProcessor BasePlayer BaseStructs BaseSystem BaseWorldstate
+    )
+
+add_component_dir (openmw-mp/Controllers
+    SystemPacketController PlayerPacketController ActorPacketController ObjectPacketController WorldstatePacketController
+    )
+
+add_component_dir(openmw-mp/Master
+    MasterData PacketMasterQuery PacketMasterUpdate PacketMasterAnnounce BaseMasterPacket ProxyMasterPacket
+    )
+
+add_component_dir (openmw-mp/Packets
+    BasePacket PacketPreInit
+    )
+
+add_component_dir (openmw-mp/Packets/Actor
+    ActorPacket
+
+    PacketActorList PacketActorAuthority PacketActorTest PacketActorAI PacketActorAnimFlags PacketActorAnimPlay
+    PacketActorAttack PacketActorCast PacketActorCellChange PacketActorDeath PacketActorEquipment PacketActorPosition
+    PacketActorSpeech PacketActorSpellsActive PacketActorStatsDynamic
+    )
+
+add_component_dir (openmw-mp/Packets/System
+    SystemPacket
+
+    PacketSystemHandshake
+    )
+
+add_component_dir (openmw-mp/Packets/Player
+    PlayerPacket
+
+    PacketChatMessage PacketGUIBoxes PacketGameSettings
+
+    PacketPlayerBaseInfo PacketPlayerCharGen PacketPlayerAlly PacketPlayerAnimFlags PacketPlayerAnimPlay
+    PacketPlayerAttack PacketPlayerAttribute PacketPlayerBehavior PacketPlayerBook PacketPlayerBounty
+    PacketPlayerCast PacketPlayerCellChange PacketPlayerCellState PacketPlayerClass PacketPlayerCooldowns
+    PacketPlayerDeath PacketPlayerEquipment PacketPlayerFaction PacketPlayerInput PacketPlayerInventory
+    PacketPlayerItemUse PacketPlayerJail PacketPlayerJournal PacketPlayerLevel PacketPlayerMiscellaneous
+    PacketPlayerMomentum PacketPlayerPosition PacketPlayerQuickKeys PacketPlayerReputation PacketPlayerRest
+    PacketPlayerResurrect PacketPlayerShapeshift PacketPlayerSkill PacketPlayerSpeech PacketPlayerSpellbook
+    PacketPlayerSpellsActive PacketPlayerStatsDynamic PacketPlayerTopic
+    )
+
+add_component_dir (openmw-mp/Packets/Object
+    ObjectPacket
+
+    PacketDoorDestination PacketDoorState
+
+    PacketConsoleCommand PacketContainer PacketObjectActivate PacketObjectAnimPlay PacketObjectAttach
+    PacketObjectDelete PacketObjectDialogueChoice PacketObjectHit PacketObjectLock PacketObjectMove PacketObjectPlace
+    PacketObjectRestock PacketObjectRotate PacketObjectScale PacketObjectSound PacketObjectSpawn PacketObjectState
+    PacketObjectTrap PacketMusicPlay PacketVideoPlay PacketClientScriptLocal PacketScriptMemberShort
+    PacketObjectMiscellaneous
+    )
+
+add_component_dir (openmw-mp/Packets/Worldstate
+    WorldstatePacket
+
+    PacketCellCreate PacketCellReset PacketClientScriptGlobal PacketClientScriptSettings PacketRecordDynamic
+    PacketWorldCollisionOverride PacketWorldDestinationOverride PacketWorldKillCount PacketWorldMap
+    PacketWorldRegionAuthority PacketWorldTime PacketWorldWeather
     )
 
 add_component_dir (fallback
     fallback validate
     )
 
+add_component_dir(detournavigator
+    collisionshapetype
+    )
+
+if (BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (lua_ui
     registerscriptsettings scriptsettings
     properties widget element util layers content alignment resources
@@ -412,7 +507,6 @@ add_component_dir(detournavigator
     bounds
     cellgridbounds
     changetype
-    collisionshapetype
     commulativeaabb
     dbrefgeometryobject
     debug
@@ -497,6 +591,7 @@ add_component_dir(esmloader
 add_component_dir(navmeshtool
     protocol
     )
+endif()
 
 add_component_dir(platform
     platform
@@ -562,7 +657,7 @@ if (USE_QT)
 
 endif()
 
-if (MSVC)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND MSVC)
     # these TUs take a lot of memory for codegen
     # in CI, they often go over the 8GB memory limit if another cl.exe is running at the same time
     # this option (make sure you're not looking at the docs for the identically-named linker option) stops four codegen threads being spun off
@@ -577,7 +672,7 @@ endif()
 
 include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
-if (OPENMW_USE_SYSTEM_SQLITE3)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND OPENMW_USE_SYSTEM_SQLITE3)
     find_package(SQLite3 REQUIRED)
     if(NOT TARGET SQLite3::SQLite3) # CMake < 4.3
         add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
@@ -594,6 +689,7 @@ if (APPLE)
     target_compile_definitions(components PUBLIC GL_SILENCE_DEPRECATION=1)
 endif()
 
+if (BUILD_OPENMW OR BUILD_OPENCS)
 target_link_libraries(components
     ${COLLADA_DOM_LIBRARIES}
 
@@ -613,23 +709,15 @@ target_link_libraries(components
     ${OSG_LIBRARIES}
     ${OPENTHREADS_LIBRARIES}
 
-    Boost::program_options
-    Boost::iostreams
-
     SDL2::SDL2
     ${OPENGL_gl_LIBRARY}
     ${MyGUI_LIBRARIES}
     ${LUA_LIBRARIES}
-    LZ4::LZ4
     RecastNavigation::DebugUtils
     RecastNavigation::Detour
     RecastNavigation::Recast
-
-    Base64
     SQLite3::SQLite3
-    smhasher
-    ${ICU_LIBRARIES}
-    ZLIB::ZLIB
+    ${BULLET_LIBRARIES}
     )
 
 if(yaml-cpp_VERSION VERSION_GREATER_EQUAL 0.8.0)
@@ -637,8 +725,21 @@ if(yaml-cpp_VERSION VERSION_GREATER_EQUAL 0.8.0)
 else()
     target_link_libraries(components yaml-cpp)
 endif()
+endif()
 
-target_link_libraries(components ${BULLET_LIBRARIES})
+target_link_libraries(components
+    ${OSG_LIBRARIES}
+    ${OPENTHREADS_LIBRARIES}
+    ${MyGUI_LIBRARIES}
+    SDL2::SDL2
+    Boost::program_options
+    Boost::iostreams
+    LZ4::LZ4
+    Base64
+    smhasher
+    ${ICU_LIBRARIES}
+    ZLIB::ZLIB
+    )
 
 if (USE_QT)
     add_library(components_qt STATIC ${COMPONENT_QT_FILES})
@@ -720,7 +821,7 @@ if(USE_QT)
     set_property(TARGET components_qt PROPERTY AUTOUIC_SEARCH_PATHS contentselector)
 endif(USE_QT)
 
-if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
+if ((BUILD_OPENMW OR BUILD_OPENCS) AND MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
     target_precompile_headers(components PUBLIC
         <sol/sol.hpp>
 

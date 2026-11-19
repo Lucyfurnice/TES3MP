@@ -31,7 +31,7 @@ const char *MechanicsFunctions::GetMarkCell(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, 0);
 
-    tempCellDescription = player->cell.getShortDescription().c_str();
+    tempCellDescription = Utils::getCellDescription(player->cell).c_str();
     return tempCellDescription.c_str();
 }
 
