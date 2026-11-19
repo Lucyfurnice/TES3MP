@@ -256,6 +256,7 @@ set(BUILTIN_DATA_FILES
     mygui/openmw_postprocessor_hud.layout
     mygui/openmw_postprocessor_hud.skin.xml
     mygui/openmw_jail_screen.layout
+    mygui/openmw_font.xml
     mygui/OpenMWResourcePlugin.xml
     mygui/skins.xml
 )
