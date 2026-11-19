@@ -16,6 +16,17 @@
 #include "creaturestats.hpp"
 #include "stat.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWMechanics
 {
     Spells::Spells() {}
@@ -141,12 +152,27 @@ namespace MWMechanics
 
     void Spells::purge(const SpellFilter& filter)
     {
+        const MWWorld::Ptr player = getPlayer();
+        const bool isPlayer = !player.isEmpty() && this == &player.getClass().getCreatureStats(player).getSpells();
+
         std::vector<ESM::RefId> purged;
         for (auto iter = mSpells.begin(); iter != mSpells.end();)
         {
             const ESM::Spell* spell = *iter;
             if (filter(spell))
             {
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_PLAYER_SPELLBOOK packet every time a spell is purged here
+                */
+                if (isPlayer)
+                    mwmp::Main::get().getLocalPlayer()->sendSpellChange(
+                        spell->mId.serializeText(), mwmp::SpellbookChanges::REMOVE);
+                /*
+                    End of tes3mp addition
+                */
+
                 iter = mSpells.erase(iter);
                 purged.push_back(spell->mId);
             }
@@ -206,6 +232,19 @@ namespace MWMechanics
             mUsedPowers.emplace_back(spell, timestamp);
         else
             it->second = timestamp;
+
+        /*
+            Start of tes3mp addition
+
+            Send an ID_PLAYER_COOLDOWN packet every time a cooldown is recorded here
+        */
+        const MWWorld::Ptr player = getPlayer();
+        if (!player.isEmpty() && this == &player.getClass().getCreatureStats(player).getSpells())
+            mwmp::Main::get().getLocalPlayer()->sendCooldownChange(
+                spell->mId.serializeText(), timestamp.getDay(), timestamp.getHour());
+        /*
+            End of tes3mp addition
+        */
     }
 
     void Spells::readState(const ESM::SpellState& state, CreatureStats* creatureStats)

@@ -8,6 +8,17 @@
 
 #include "actorutil.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 float scaleDamage(float damage, const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim)
 {
     const MWWorld::Ptr& player = MWMechanics::getPlayer();
@@ -15,7 +26,15 @@ float scaleDamage(float damage, const MWWorld::Ptr& attacker, const MWWorld::Ptr
     static const float fDifficultyMult
         = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().find("fDifficultyMult")->mValue.getFloat();
 
-    const float difficultyTerm = 0.01f * Settings::game().mDifficulty;
+    /*
+        Start of tes3mp change (major)
+
+        Use difficulty setting received from server instead of basing it on client settings
+    */
+    const float difficultyTerm = 0.01f * mwmp::Main::get().getLocalPlayer()->difficulty;
+    /*
+        End of tes3mp change (major)
+    */
 
     float x = 0;
     if (victim == player)

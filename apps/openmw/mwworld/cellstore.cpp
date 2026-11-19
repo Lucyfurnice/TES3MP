@@ -4,6 +4,18 @@
 #include <algorithm>
 #include <fstream>
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/CellController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 #include <components/debug/debuglog.hpp>
 
 #include <components/esm/format.hpp>
@@ -485,6 +497,23 @@ namespace MWWorld
         if (found != mMovedToAnotherCell.end())
         {
             // A cell we had previously moved an object to is returning it to us.
+            /*
+                Start of tes3mp addition
+
+                Add extra debug for multiplayer purposes
+            */
+            if (found->second != from)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR,
+                    "Storage: %s owned %s which it gave to %s which isn't %s, which should result in a crash\n",
+                    std::string(this->getCell()->getDescription()).c_str(),
+                    object.getBase()->mRef.getRefId().serializeText().c_str(),
+                    std::string(found->second->getCell()->getDescription()).c_str(),
+                    std::string(from->getCell()->getDescription()).c_str());
+            }
+            /*
+                End of tes3mp addition
+            */
             assert(found->second == from);
             mMovedToAnotherCell.erase(found);
         }
@@ -521,6 +550,19 @@ namespace MWWorld
             // Now that object is back to its rightful owner, we can move it
             if (cellToMoveTo != originalCell)
             {
+                /*
+                    Start of tes3mp addition
+
+                    Add extra debug for multiplayer purposes
+                */
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Storage: %s's original cell %s gives it from %s to %s\n",
+                    object.getBase()->mRef.getRefId().serializeText().c_str(),
+                    std::string(originalCell->getCell()->getDescription()).c_str(),
+                    std::string(this->getCell()->getDescription()).c_str(),
+                    std::string(cellToMoveTo->getCell()->getDescription()).c_str());
+                /*
+                    End of tes3mp addition
+                */
                 originalCell->moveTo(object, cellToMoveTo);
             }
 
@@ -571,6 +613,23 @@ namespace MWWorld
     {
         mRechargingItemsUpToDate = false;
         mMergedRefsNeedsUpdate = true;
+
+        /*
+            Start of tes3mp addition
+
+            If the mwmp::Cell corresponding to this CellStore is under the authority of the LocalPlayer,
+            prepare a new initialization of LocalActors in it
+
+            Warning: Don't directly use initializeLocalActors() from here because that will break any current
+            cell transition that started in World::moveObject()
+        */
+        if (mwmp::Main::isInitialized() && mwmp::Main::get().getCellController()->hasLocalAuthority(getCell()->getEsm3()))
+        {
+            mwmp::Main::get().getCellController()->getCell(getCell()->getEsm3())->shouldInitializeActors = true;
+        }
+        /*
+            End of tes3mp addition
+        */
     }
 
     void CellStore::updateMergedRefs(bool includeDeleted) const
@@ -1363,6 +1422,18 @@ namespace MWWorld
 
     void CellStore::clearMovesToCells()
     {
+        for (auto& reference : mMovedHere)
+        {
+            MWWorld::CellStore* otherCell = reference.second;
+            otherCell->mMovedToAnotherCell.erase(reference.first);
+        }
+
+        for (auto& reference : mMovedToAnotherCell)
+        {
+            MWWorld::CellStore* otherCell = reference.second;
+            otherCell->mMovedHere.erase(reference.first);
+        }
+
         mMovedToAnotherCell.clear();
         mMovedHere.clear();
         requestMergedRefsUpdate();

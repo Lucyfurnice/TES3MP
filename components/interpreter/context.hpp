@@ -98,6 +98,20 @@ namespace Interpreter
         virtual void setMemberLong(ESM::RefId id, std::string_view name, int value, bool global) = 0;
 
         virtual void setMemberFloat(ESM::RefId id, std::string_view name, float value, bool global) = 0;
+
+        /*
+            Start of tes3mp addition
+
+            Used for tracking and checking the type of this Context, as well as
+            its current script
+        */
+        virtual unsigned short getContextType() const { return CONSOLE; }
+        virtual std::string getCurrentScriptName() const { return {}; }
+        virtual void trackContextType(unsigned short interpreterType) {}
+        virtual void trackCurrentScriptName(const std::string& name) {}
+        /*
+            End of tes3mp addition
+        */
     };
 }
 

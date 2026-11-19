@@ -26,6 +26,17 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
 
@@ -107,6 +118,31 @@ namespace MWGui
         }
 
         const bool canSleep = !ptr.isEmpty() || (restFlags & MWBase::World::Rest_CanSleep) != 0;
+
+        /*
+            Start of tes3mp addition
+
+            Prevent resting and waiting if they have been disabled by the server for the local player
+        */
+        if (ptr.isEmpty() && !mwmp::Main::get().getLocalPlayer()->isUsingBed)
+        {
+            if (canSleep && !mwmp::Main::get().getLocalPlayer()->wildernessRestAllowed)
+            {
+                MWBase::Environment::get().getWindowManager()->messageBox("You are not allowed to rest without a bed.");
+                MWBase::Environment::get().getWindowManager()->popGuiMode();
+                return;
+            }
+            else if (!canSleep && !mwmp::Main::get().getLocalPlayer()->waitAllowed)
+            {
+                MWBase::Environment::get().getWindowManager()->messageBox("You are not allowed to wait.");
+                MWBase::Environment::get().getWindowManager()->popGuiMode();
+                return;
+            }
+        }
+        /*
+            End of tes3mp addition
+        */
+
         setCanRest(canSleep);
 
         if (mUntilHealedButton->getVisible())
@@ -188,8 +224,18 @@ namespace MWGui
 
     void WaitDialog::startWaiting(int hoursToWait)
     {
+        /*
+            Start of tes3mp change (major)
+
+            It should not be possible to autosave the game in multiplayer, so it has been disabled
+        */
+        /*
         if (Settings::saves().mAutosave) // autosaves when enabled
             MWBase::Environment::get().getStateManager()->quickSave("Autosave");
+        */
+        /*
+            End of tes3mp change (major)
+        */
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0.2f);
@@ -259,7 +305,16 @@ namespace MWGui
     {
         mProgressBar.setProgress(cur, total);
         MWBase::Environment::get().getMechanicsManager()->rest(1, mSleeping);
-        MWBase::Environment::get().getWorld()->advanceTime(1);
+
+        /*
+            Start of tes3mp change (major)
+
+            Multiplayer requires that time not get advanced here
+        */
+        //MWBase::Environment::get().getWorld()->advanceTime(1);
+        /*
+            End of tes3mp change (major)
+        */
 
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
         if (player.getClass().getCreatureStats(player).isDead())

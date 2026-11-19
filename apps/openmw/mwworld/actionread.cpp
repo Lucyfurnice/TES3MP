@@ -1,5 +1,16 @@
 #include "actionread.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadskil.hpp>
@@ -53,6 +64,16 @@ namespace MWWorld
             MWBase::Environment::get().getLuaManager()->skillLevelUp(player, skill, "book");
 
             npcStats.flagAsUsed(ref->mBase->mId);
+
+            /*
+                Start of tes3mp addition
+
+                Send an ID_PLAYER_BOOK packet every time a player reads a skill book
+            */
+            mwmp::Main::get().getLocalPlayer()->sendBook(ref->mBase->mId.serializeText());
+            /*
+                End of tes3mp addition
+            */
         }
     }
 }

@@ -52,6 +52,19 @@
 #include "filter.hpp"
 #include "keywordsearch.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/LocalActor.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWDialogue
 {
     DialogueManager::DialogueManager(
@@ -121,7 +134,20 @@ namespace MWDialogue
         for (const auto& topicId : parseTopicIdsFromText(text))
         {
             if (mActorKnownTopics.count(topicId))
+            {
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_PLAYER_TOPIC packet every time a new topic becomes known
+                */
+                if (!mKnownTopics.count(topicId))
+                    mwmp::Main::get().getLocalPlayer()->sendTopic(topicId.toString());
+                /*
+                    End of tes3mp addition
+                */
+
                 mKnownTopics.insert(topicId);
+            }
         }
     }
 
@@ -257,6 +283,19 @@ namespace MWDialogue
             try
             {
                 MWScript::InterpreterContext interpreterContext(&actor.getRefData().getLocals(), actor);
+
+                /*
+                    Start of tes3mp addition
+
+                    Mark this InterpreterContext as having a DIALOGUE context,
+                    so that packets sent by the Interpreter can have their
+                    origin determined by serverside scripts
+                */
+                interpreterContext.trackContextType(Interpreter::Context::DIALOGUE);
+                /*
+                    End of tes3mp addition
+                */
+
                 Interpreter::Interpreter interpreter;
                 MWScript::installOpcodes(interpreter);
                 interpreter.run(*program, interpreterContext);
@@ -653,12 +692,36 @@ namespace MWDialogue
         {
             MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
             if (Settings::gui().mSubtitles)
-                winMgr->messageBox(info->mResponse);
+            /*
+                Start of tes3mp change (minor)
+
+                Prevent subtitles for NPC sounds from being added to a currently open dialogue window,
+                which wasn't a problem in regular OpenMW because time was frozen during dialogue
+            */
+                winMgr->messageBox(info->mResponse, MWGui::ShowInDialogueMode_Never);
+            /*
+                End of tes3mp change (minor)
+            */
             if (!info->mSound.empty())
                 sndMgr->say(actor, Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(info->mSound)));
             if (!info->mResultScript.empty())
                 executeScript(info->mResultScript, actor);
             MWBase::Environment::get().getLuaManager()->onDialogueResponse(actor, *info, *dial);
+
+            /*
+                Start of tes3mp addition
+
+                If we are the cell authority over this actor, we need to record this new
+                sound for it
+            */
+            if (mwmp::Main::get().getCellController()->isLocalActor(actor))
+            {
+                mwmp::LocalActor* localActor = mwmp::Main::get().getCellController()->getLocalActor(actor);
+                localActor->sound = info->mSound;
+            }
+            /*
+                End of tes3mp addition
+            */
         }
         return info != nullptr;
     }

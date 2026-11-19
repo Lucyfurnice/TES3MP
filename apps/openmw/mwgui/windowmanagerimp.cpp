@@ -125,6 +125,18 @@
 #include "videowidget.hpp"
 #include "waitdialog.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/GUIController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     namespace
@@ -734,6 +746,15 @@ namespace MWGui
                 mCharGen->spawnDialog(mode);
                 break;
             default:
+                /*
+                    Start of tes3mp addition
+
+                    Pass the GuiMode further on to the multiplayer-specific GUI controller
+                */
+                mwmp::Main::get().getGUIController()->WM_UpdateVisible(mode);
+                /*
+                    End of tes3mp addition
+                */
                 break;
         }
     }
@@ -778,10 +799,22 @@ namespace MWGui
         popGuiMode();
     }
 
+    /*
+        Start of tes3mp change (major)
+
+        Add a hasServerOrigin boolean to the list of arguments so those messageboxes
+        can be differentiated from client-only ones
+
+        Use the hasServerOrigin argument when creating an interactive message box
+    */
     void WindowManager::interactiveMessageBox(
-        std::string_view message, const std::vector<std::string>& buttons, bool block, int defaultFocus)
+        std::string_view message, const std::vector<std::string>& buttons, bool block, int defaultFocus,
+        bool hasServerOrigin)
     {
-        mMessageBoxManager->createInteractiveMessageBox(message, buttons, block, defaultFocus);
+        mMessageBoxManager->createInteractiveMessageBox(message, buttons, block, defaultFocus, hasServerOrigin);
+    /*
+        End of tes3mp change (major)
+    */
         updateVisible();
 
         if (block)
@@ -1015,6 +1048,27 @@ namespace MWGui
                 if (window->isVisible())
                     window->onFrame(frameDuration);
         }
+
+        /*
+            Start of tes3mp addition
+
+            Fix crashes caused by messageboxes that never have their modals erased elsewhere, working around
+            one of the main GUI-related problems that arise in an unpaused environment
+        */
+        for (auto modalIterator = mCurrentModals.begin(); modalIterator != mCurrentModals.end();)
+        {
+            if ((*modalIterator)->mMainWidget == 0)
+            {
+                modalIterator = mCurrentModals.erase(modalIterator);
+            }
+            else
+            {
+                ++modalIterator;
+            }
+        }
+        /*
+            End of tes3mp addition
+        */
 
         // Make sure message boxes are always in front
         // This is an awful workaround for a series of awfully interwoven issues that couldn't be worked around

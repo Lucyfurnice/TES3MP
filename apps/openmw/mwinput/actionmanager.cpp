@@ -24,6 +24,18 @@
 #include "actions.hpp"
 #include "bindingsmanager.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/GUIController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWInput
 {
 
@@ -57,6 +69,18 @@ namespace MWInput
 
     void ActionManager::executeAction(int action)
     {
+        /*
+            Start of tes3mp addition
+
+            Ignore attempts to open inventory, journal, or quick keys if the player has not logged in on the server yet
+        */
+        if ((action == A_Inventory || action == A_Journal || action == A_QuickKeysMenu)
+            && !mwmp::Main::get().getLocalPlayer()->isLoggedIn())
+            return;
+        /*
+            End of tes3mp addition
+        */
+
         MWBase::Environment::get().getLuaManager()->inputEvent({ MWBase::LuaManager::InputEvent::Action, action });
         const auto inputManager = MWBase::Environment::get().getInputManager();
         const auto windowManager = MWBase::Environment::get().getWindowManager();
@@ -174,6 +198,19 @@ namespace MWInput
 
     void ActionManager::toggleMainMenu()
     {
+        /*
+            Start of tes3mp addition
+
+            Don't allow the main menu to be toggled while TES3MP listboxes are open
+        */
+        if (MWBase::Environment::get().getWindowManager()->getMode() == mwmp::GUIController::GM_TES3MP_ListBox)
+        {
+            return;
+        }
+        /*
+            End of tes3mp addition
+        */
+
         if (MyGUI::InputManager::getInstance().isModalAny())
         {
             MWBase::Environment::get().getWindowManager()->exitCurrentModal();
@@ -223,6 +260,22 @@ namespace MWInput
             || MWBase::Environment::get().getWindowManager()->isGuiMode())
             return;
 
+        /*
+            Start of tes3mp addition
+
+            Ignore attempts to rest if the player has not logged in on the server yet
+
+            Set LocalPlayer's isUsingBed to be able to distinguish bed use from regular rest
+            menu use
+        */
+        if (!mwmp::Main::get().getLocalPlayer()->isLoggedIn())
+            return;
+
+        mwmp::Main::get().getLocalPlayer()->isUsingBed = false;
+        /*
+            End of tes3mp addition
+        */
+
         MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_Rest); // Open rest GUI
     }
 
@@ -230,6 +283,17 @@ namespace MWInput
     {
         if (MyGUI::InputManager::getInstance().isModalAny())
             return;
+
+        /*
+            Start of tes3mp addition
+
+            If a player's console is disabled by the server, go no further
+        */
+        if (!mwmp::Main::get().getLocalPlayer()->consoleAllowed)
+            return;
+        /*
+            End of tes3mp addition
+        */
 
         MWBase::Environment::get().getWindowManager()->toggleConsole();
     }

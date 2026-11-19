@@ -41,6 +41,20 @@
 #include "npcstats.hpp"
 #include "spellutil.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/PlayerList.hpp"
+#include "../mwmp/CellController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace
 {
 
@@ -861,7 +875,15 @@ namespace MWMechanics
         mUpdatePlayer = true;
         mClassSelected = true;
         mRaceSelected = true;
-        mAI = true;
+        /*
+            Start of tes3mp change (major)
+
+            Avoid enabling AI in multiplayer
+        */
+        mAI = false;
+        /*
+            End of tes3mp change (major)
+        */
     }
 
     namespace
@@ -1227,6 +1249,17 @@ namespace MWMechanics
         if (actor == getPlayer() || !actor.getClass().isNpc() || actor.getClass().getCreatureStats(actor).isDead())
             return false;
 
+        /*
+            Start of tes3mp addition
+
+            We need player-controlled NPCs to not report crimes committed by other players
+        */
+        if (mwmp::PlayerList::isDedicatedPlayer(actor))
+            return false;
+        /*
+            End of tes3mp addition
+        */
+
         if (actor.getClass().getCreatureStats(actor).getAiSequence().isInCombat(victim))
             return false;
 
@@ -1496,6 +1529,16 @@ namespace MWMechanics
                 const std::map<ESM::RefId, int>& playerRanks = player.getClass().getNpcStats(player).getFactionRanks();
                 if (playerRanks.find(factionID) != playerRanks.end())
                 {
+                    /*
+                        Start of tes3mp addition
+
+                        Send an ID_PLAYER_FACTION packet every time a player is expelled from a faction
+                    */
+                    mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionID.serializeText(), true);
+                    /*
+                        End of tes3mp addition
+                    */
+
                     player.getClass().getNpcStats(player).expell(factionID, true);
                 }
             }
@@ -1504,6 +1547,16 @@ namespace MWMechanics
                 const std::map<ESM::RefId, int>& playerRanks = player.getClass().getNpcStats(player).getFactionRanks();
                 if (playerRanks.find(factionId) != playerRanks.end())
                 {
+                    /*
+                        Start of tes3mp addition
+
+                        Send an ID_PLAYER_FACTION packet every time a player is expelled from a faction
+                    */
+                    mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionId.serializeText(), true);
+                    /*
+                        End of tes3mp addition
+                    */
+
                     player.getClass().getNpcStats(player).expell(factionId, true);
                 }
             }
@@ -1532,15 +1585,38 @@ namespace MWMechanics
         if (target == player || !attacker.getClass().isActor())
             return false;
 
+        /*
+            Start of tes3mp change (major)
+
+            Don't set DedicatedPlayers as being in combat with the attacker, to prevent
+            AI actors from deciding to reciprocate by also starting combat
+        */
+        if (mwmp::PlayerList::isDedicatedPlayer(target))
+            return false;
+        /*
+            End of tes3mp change (major)
+        */
+
         if (canCommitCrimeAgainst(target, attacker))
             commitCrime(attacker, target, MWBase::MechanicsManager::OT_Assault);
 
         MWMechanics::CreatureStats& statsTarget = target.getClass().getCreatureStats(target);
         AiSequence& seq = statsTarget.getAiSequence();
 
+        /*
+            Start of tes3mp change (major)
+
+            Make it possible to start combat with DedicatedPlayers and DedicatedActors by
+            adding additional conditions for them
+        */
         if (!attacker.isEmpty()
-            && (attacker.getClass().getCreatureStats(attacker).getAiSequence().isInCombat(target) || attacker == player)
+            && (attacker.getClass().getCreatureStats(attacker).getAiSequence().isInCombat(target) || attacker == player
+                || mwmp::PlayerList::isDedicatedPlayer(attacker)
+                || mwmp::Main::get().getCellController()->isDedicatedActor(attacker))
             && !seq.isInCombat(attacker))
+        /*
+            End of tes3mp change (major)
+        */
         {
             // Attacker is in combat with us, but we are not in combat with the attacker yet. Time to fight back.
             // Note: accidental or collateral damage attacks are ignored.

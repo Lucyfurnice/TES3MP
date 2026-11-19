@@ -514,4 +514,33 @@ namespace MWScript
                 mLocals = &mReference.getRefData().getLocals();
         }
     }
+
+    /*
+        Start of tes3mp addition
+
+        Used for tracking and checking the type of this InterpreterContext, as well as
+        its current script
+    */
+    unsigned short InterpreterContext::getContextType() const
+    {
+        return mContextType;
+    }
+
+    std::string InterpreterContext::getCurrentScriptName() const
+    {
+        return mCurrentScriptName;
+    }
+
+    void InterpreterContext::trackContextType(unsigned short contextType)
+    {
+        mContextType = contextType;
+    }
+
+    void InterpreterContext::trackCurrentScriptName(const std::string& name)
+    {
+        mCurrentScriptName = name;
+    }
+    /*
+        End of tes3mp addition
+    */
 }

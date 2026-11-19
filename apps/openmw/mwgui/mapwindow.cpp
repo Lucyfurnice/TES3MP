@@ -189,11 +189,33 @@ namespace MWGui
         , mCustomMarkers(markers)
     {
         mCustomMarkers.eventMarkersChanged += MyGUI::newDelegate(this, &LocalMapBase::updateCustomMarkers);
+
+        /*
+            Start of tes3mp addition
+
+            Add a MyGUI delegate for updating player markers
+        */
+        mwmp::Main::get().getGUIController()->mPlayerMarkers.eventMarkersChanged
+            += MyGUI::newDelegate(this, &LocalMapBase::updatePlayerMarkers);
+        /*
+            End of tes3mp addition
+        */
     }
 
     LocalMapBase::~LocalMapBase()
     {
         mCustomMarkers.eventMarkersChanged -= MyGUI::newDelegate(this, &LocalMapBase::updateCustomMarkers);
+
+        /*
+            Start of tes3mp addition
+
+            Remove a MyGUI delegate for updating player markers
+        */
+        mwmp::Main::get().getGUIController()->mPlayerMarkers.eventMarkersChanged
+            -= MyGUI::newDelegate(this, &LocalMapBase::updatePlayerMarkers);
+        /*
+            End of tes3mp addition
+        */
     }
 
     MWGui::LocalMapBase::MapEntry& LocalMapBase::addMapEntry()
@@ -376,6 +398,19 @@ namespace MWGui
 
         redraw();
     }
+
+    /*
+        Start of tes3mp addition
+
+        Send the LocalMapBase to our GUIController when updating player markers
+    */
+    void LocalMapBase::updatePlayerMarkers()
+    {
+        mwmp::Main::get().getGUIController()->updatePlayersMarkers(this);
+    }
+    /*
+        End of tes3mp addition
+    */
 
     void LocalMapBase::setActiveCell(const MWWorld::Cell& cell)
     {

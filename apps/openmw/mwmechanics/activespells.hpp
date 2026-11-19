@@ -44,6 +44,7 @@ namespace MWMechanics
             MWWorld::TimeStamp mNextWorsening;
             MWWorld::TimeStamp mTimeStamp;
             MWWorld::Ptr mSource;
+            bool mSendPacket = false;
 
             ActiveSpellParams(const ESM::ActiveSpells::ActiveSpellParams& params);
 

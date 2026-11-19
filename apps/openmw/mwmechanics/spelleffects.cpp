@@ -35,6 +35,23 @@
 #include "../mwworld/player.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/PlayerList.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace
 {
     enum Stats
@@ -362,6 +379,19 @@ namespace
                 }
             }
         }
+        /*
+            Start of tes3mp addition
+
+            Now that reflected/absorbed effects have been handled, don't unilaterally process effects further for
+            dedicated players and actors on this client and instead expect their effects to be applied correctly
+            through the SpellsActive packets received
+        */
+        if (mwmp::PlayerList::isDedicatedPlayer(target) || mwmp::Main::get().getCellController()->isDedicatedActor(target))
+            return MWMechanics::MagicApplicationResult::Type::APPLIED;
+        /*
+            End of tes3mp addition
+        */
+
         // Notify the target actor they've been hit
         bool isHarmful = magicEffect->mData.mFlags & ESM::MagicEffect::Harmful;
         if (target.getClass().isActor() && target != caster && !caster.isEmpty() && isHarmful)
@@ -499,7 +529,20 @@ namespace MWMechanics
                 if (target != getPlayer())
                     return ESM::ActiveEffect::Flag_Invalid;
                 else if (world->isTeleportingEnabled())
+                {
                     world->getPlayer().markPosition(target.getCell(), target.getRefData().getPosition());
+
+                    /*
+                        Start of tes3mp addition
+
+                        Send a PlayerMiscellaneous packet with the player's new mark location
+                    */
+                    mwmp::Main::get().getLocalPlayer()->sendMarkLocation(
+                        target.getCell()->getCell()->getEsm3(), target.getRefData().getPosition());
+                    /*
+                        End of tes3mp addition
+                    */
+                }
                 else if (caster == getPlayer())
                     MWBase::Environment::get().getWindowManager()->messageBox("#{sTeleportDisabled}");
             }
@@ -649,7 +692,7 @@ namespace MWMechanics
             {
                 if (!target.isInCell())
                     return ESM::ActiveEffect::Flag_Invalid;
-                effect.mArg = summonCreature(effect.mEffectId, target);
+                effect.mArg = summonCreature(effect.mEffectId, target, spellParams.getSourceSpellId());
             }
             else if (effect.mEffectId == ESM::MagicEffect::BoundGloves)
             {
@@ -1272,7 +1315,31 @@ namespace MWMechanics
 
                     if (caster == getPlayer())
                         MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicLockSuccess}");
-                    target.getCellRef().lock(magnitude);
+
+                    /*
+                        Start of tes3mp change (major)
+
+                        Disable unilateral locking on this client and expect the server's reply to our
+                        packet to do it instead
+                    */
+                    //target.getCellRef().lock(magnitude);
+                    /*
+                        End of tes3mp change (major)
+                    */
+
+                    /*
+                        Start of tes3mp addition
+
+                        Send an ID_OBJECT_LOCK packet every time an object is locked here
+                    */
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                    objectList->addObjectLock(target, magnitude);
+                    objectList->sendObjectLock();
+                    /*
+                        End of tes3mp addition
+                    */
                 }
             }
             else
@@ -1298,7 +1365,31 @@ namespace MWMechanics
 
                         if (caster == getPlayer())
                             MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicOpenSuccess}");
-                        target.getCellRef().unlock();
+
+                        /*
+                            Start of tes3mp change (major)
+
+                            Disable unilateral locking on this client and expect the server's reply to our
+                            packet to do it instead
+                        */
+                        //target.getCellRef().unlock();
+                        /*
+                            End of tes3mp change (major)
+                        */
+
+                        /*
+                            Start of tes3mp addition
+
+                            Send an ID_OBJECT_LOCK packet every time an object is unlocked here
+                        */
+                        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                        objectList->reset();
+                        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                        objectList->addObjectLock(target, 0);
+                        objectList->sendObjectLock();
+                        /*
+                            End of tes3mp addition
+                        */
                     }
                 }
                 else
@@ -1335,6 +1426,24 @@ namespace MWMechanics
                 if (result != MagicApplicationResult::Type::APPLIED)
                     return { result, receivedMagicDamage, affectedHealth };
             }
+
+            /*
+                Start of tes3mp addition
+
+                Now that reflected/absorbed effects have been handled, don't unilaterally process effects further for
+                dedicated players and actors on this client and instead expect their effects to be applied correctly
+                through the SpellsActive packets received
+            */
+            if (mwmp::PlayerList::isDedicatedPlayer(target)
+                || mwmp::Main::get().getCellController()->isDedicatedActor(target))
+            {
+                effect.mTimeLeft -= dt;
+                return { MagicApplicationResult::Type::APPLIED, receivedMagicDamage, affectedHealth };
+            }
+            /*
+                End of tes3mp addition
+            */
+
             float oldMagnitude = 0.f;
             if (effect.mFlags & ESM::ActiveEffect::Flag_Applied)
                 oldMagnitude = effect.mMagnitude;
@@ -1378,8 +1487,38 @@ namespace MWMechanics
                 applied |= ESM::ActiveEffect::Flag_Applied;
             }
             else
+            {
+                bool wasDead = stats.isDead();
                 applied |= applyActorMagicEffect(
                     target, caster, spellParams, effect, receivedMagicDamage, affectedHealth, recalculateMagicka);
+                bool isDead = stats.isDead();
+
+                /*
+                    Start of tes3mp addition
+
+                    If the target was a LocalPlayer or LocalActor who died, record the caster as the killer
+                */
+                if (!wasDead && isDead)
+                {
+                    bool isSuicide = target == caster || caster.isEmpty();
+
+                    if (target == MWMechanics::getPlayer())
+                    {
+                        mwmp::Main::get().getLocalPlayer()->killer = isSuicide
+                            ? MechanicsHelper::getTarget(target)
+                            : MechanicsHelper::getTarget(caster);
+                    }
+                    else if (mwmp::Main::get().getCellController()->isLocalActor(target))
+                    {
+                        mwmp::Main::get().getCellController()->getLocalActor(target)->killer = isSuicide
+                            ? MechanicsHelper::getTarget(target)
+                            : MechanicsHelper::getTarget(caster);
+                    }
+                }
+                /*
+                    End of tes3mp addition
+                */
+            }
             effect.mMagnitude = magnitude;
             magnitudes.add(EffectKey(effect.mEffectId, effect.getSkillOrAttribute()),
                 EffectParam(effect.mMagnitude - oldMagnitude));

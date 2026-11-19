@@ -17,6 +17,17 @@
 #include "creaturestats.hpp"
 #include "spells.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWMechanics
 {
 
@@ -70,6 +81,18 @@ namespace MWMechanics
                 creatureStats.getSpells().add(spell);
                 creatureStats.getActiveSpells().addSpell(spell, actor, false);
                 MWBase::Environment::get().getWorld()->applyLoopingParticles(actor);
+
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_PLAYER_SPELLBOOK packet every time a player gains a disease
+                */
+                if (actor == getPlayer())
+                    mwmp::Main::get().getLocalPlayer()->sendSpellChange(
+                        spell->mId.serializeText(), mwmp::SpellbookChanges::ADD);
+                /*
+                    End of tes3mp addition
+                */
 
                 if (actor == getPlayer())
                 {

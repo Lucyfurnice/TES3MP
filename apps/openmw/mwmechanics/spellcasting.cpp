@@ -26,6 +26,20 @@
 #include "spellutil.hpp"
 #include "weapontype.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWMechanics
 {
     CastSpell::CastSpell(
@@ -325,9 +339,23 @@ namespace MWMechanics
                         school = magicEffect->mData.mSchool;
                     }
 
+                    ESM::RefId failureSound = store->get<ESM::Skill>().find(school)->mSchool->mFailureSound;
                     MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
-                    sndMgr->playSound3D(
-                        mCaster, store->get<ESM::Skill>().find(school)->mSchool->mFailureSound, 1.0f, 1.0f);
+                    sndMgr->playSound3D(mCaster, failureSound, 1.0f, 1.0f);
+
+                    /*
+                        Start of tes3mp addition
+
+                        Send an ID_OBJECT_SOUND packet every time a sound is made here
+                    */
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                    objectList->addObjectSound(mCaster, failureSound.getRefIdString(), 1.0f, 1.0f);
+                    objectList->sendObjectSound();
+                    /*
+                        End of tes3mp addition
+                    */
                 }
                 return false;
             }
@@ -401,15 +429,36 @@ namespace MWMechanics
             {
                 bool fail = false;
 
+                /*
+                    Start of tes3mp change (major)
+
+                    Make spell casting fail based on the casting success rate determined
+                    in MechanicsHelper::getSpellSuccess()
+                */
+                mwmp::Cast* localCast = nullptr;
+                mwmp::Cast* dedicatedCast = MechanicsHelper::getDedicatedCast(mCaster);
+
+                if (dedicatedCast)
+                    dedicatedCast->pressed = false;
+                else
+                {
+                    localCast = MechanicsHelper::getLocalCast(mCaster);
+                    localCast->success = MechanicsHelper::getSpellSuccess(mId.toString(), mCaster);
+                    localCast->pressed = false;
+                    localCast->shouldSend = true;
+                }
+
                 // Check success
-                float successChance = getSpellSuccessChance(spell, mCaster, nullptr, true, false);
-                auto& prng = MWBase::Environment::get().getWorld()->getPrng();
-                if (Misc::Rng::roll0to99(prng) >= successChance)
+                if ((localCast && localCast->success == false) ||
+                    (dedicatedCast && dedicatedCast->success == false))
                 {
                     if (mCaster == getPlayer())
                         MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicSkillFail}");
                     fail = true;
                 }
+                /*
+                    End of tes3mp change (major)
+                */
 
                 if (fail)
                 {
@@ -417,6 +466,21 @@ namespace MWMechanics
                     MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
                     const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().find(school);
                     sndMgr->playSound3D(mCaster, skill->mSchool->mFailureSound, 1.0f, 1.0f);
+
+                    /*
+                        Start of tes3mp addition
+
+                        Send an ID_OBJECT_SOUND packet every time a sound is made here
+                    */
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                    objectList->addObjectSound(mCaster, skill->mSchool->mFailureSound.getRefIdString(), 1.0f, 1.0f);
+                    objectList->sendObjectSound();
+                    /*
+                        End of tes3mp addition
+                    */
+
                     return false;
                 }
             }
@@ -561,12 +625,25 @@ namespace MWMechanics
         const auto& store = MWBase::Environment::get().getESMStore();
         if (playNonLooping)
         {
+            ESM::RefId hitSound = !magicEffect.mHitSound.empty()
+                ? magicEffect.mHitSound
+                : store->get<ESM::Skill>().find(magicEffect.mData.mSchool)->mSchool->mHitSound;
             MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
-            if (!magicEffect.mHitSound.empty())
-                sndMgr->playSound3D(target, magicEffect.mHitSound, 1.0f, 1.0f);
-            else
-                sndMgr->playSound3D(
-                    target, store->get<ESM::Skill>().find(magicEffect.mData.mSchool)->mSchool->mHitSound, 1.0f, 1.0f);
+            sndMgr->playSound3D(target, hitSound, 1.0f, 1.0f);
+
+            /*
+                Start of tes3mp addition
+
+                Send an ID_OBJECT_SOUND packet every time a sound is made here
+            */
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->addObjectSound(target, hitSound.getRefIdString(), 1.0f, 1.0f);
+            objectList->sendObjectSound();
+            /*
+                End of tes3mp addition
+            */
         }
 
         // Add VFX

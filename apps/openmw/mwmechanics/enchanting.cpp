@@ -18,6 +18,20 @@
 #include "spellutil.hpp"
 #include "weapontype.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Worldstate.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWMechanics
 {
     Enchanting::Enchanting()
@@ -103,15 +117,35 @@ namespace MWMechanics
             enchantmentPtr = MWBase::Environment::get().getESMStore()->insert(enchantment);
 
         // Apply the enchantment
-        const ESM::RefId& newItemId
-            = mOldItemPtr.getClass().applyEnchantment(mOldItemPtr, enchantmentPtr->mId, getGemCharge(), mNewItemName);
+        /*
+            Start of tes3mp change (major)
+
+            Send the enchantment's record to the server
+
+            Don't add the new item to the player's inventory and instead expect the server to
+            add it
+
+            Store the quantity used for the enchantment so it can be retrieved in applyEnchantment()
+            when applicable
+
+            The applyEnchantment() method is where the record of the newly enchanted item will be sent
+            to the server, causing the server to send back the player's inventory with the new item
+            included
+        */
+        mwmp::Main::get().getNetworking()->getWorldstate()->sendEnchantmentRecord(enchantmentPtr);
+
+        // Add the new item to player inventory and remove the old one
+        store.remove(mOldItemPtr, count);
 
         if (!mSelfEnchanting)
             payForEnchantment(count);
 
-        // Add the new item to player inventory and remove the old one
-        store.remove(mOldItemPtr, count);
-        store.add(newItemId, count);
+        mwmp::Main::get().getLocalPlayer()->storeLastEnchantmentQuantity(count);
+
+        mOldItemPtr.getClass().applyEnchantment(mOldItemPtr, enchantmentPtr->mId, getGemCharge(), mNewItemName);
+        /*
+            End of tes3mp change (major)
+        */
 
         return true;
     }

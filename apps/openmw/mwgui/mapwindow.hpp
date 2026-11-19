@@ -165,7 +165,7 @@ namespace MWGui
         std::vector<MarkerWidget*>& currentDoorMarkersWidgets();
 
         virtual void updateCustomMarkers();
-        virtual void updatePlayerMarkers() {}
+        virtual void updatePlayerMarkers();
 
         void applyFogOfWar();
 

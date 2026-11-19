@@ -33,6 +33,19 @@
 #include "../mwworld/manualref.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/LocalActor.hpp"
+#include "../mwmp/CellController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace
 {
     bool merge(std::vector<ESM::ActiveEffect>& present, const std::vector<ESM::ActiveEffect>& queued)
@@ -285,7 +298,35 @@ namespace MWMechanics
             if (removedSpell)
                 continue;
             if (spellIt->mEffects.empty())
+            {
+                /*
+                    Start of tes3mp addition
+
+                    Whenever the local player loses an active spell, send an ID_PLAYER_SPELLS_ACTIVE packet to the server with it
+
+                    Whenever a local actor loses an active spell, send an ID_ACTOR_SPELLS_ACTIVE packet to the server with it
+                */
+                if (spellIt->hasFlag(ESM::ActiveSpells::Flag_Temporary))
+                {
+                    if (ptr == MWMechanics::getPlayer())
+                    {
+                        mwmp::Main::get().getLocalPlayer()->sendSpellsActiveRemoval(
+                            spellIt->mSourceSpellId.serializeText(),
+                            spellIt->hasFlag(ESM::ActiveSpells::Flag_Stackable), spellIt->mTimeStamp);
+                    }
+                    else if (mwmp::Main::get().getCellController()->isLocalActor(ptr))
+                    {
+                        mwmp::Main::get().getCellController()->getLocalActor(ptr)->sendSpellsActiveRemoval(
+                            spellIt->mSourceSpellId.serializeText(),
+                            spellIt->hasFlag(ESM::ActiveSpells::Flag_Stackable), spellIt->mTimeStamp);
+                    }
+                }
+                /*
+                    End of tes3mp addition
+                */
+
                 spellIt = mSpells.erase(spellIt);
+            }
             else
                 ++spellIt;
         }
@@ -478,9 +519,36 @@ namespace MWMechanics
         mSpells.emplace_back(params).setActiveSpellId(MWBase::Environment::get().getESMStore()->generateId());
         auto it = mSpells.end();
         --it;
+        auto inserted = it;
         // We instantly apply the effect with a duration of 0 so continuous effects can be purged before truly applying
         if (context.mUpdate && updateActiveSpell(ptr, 0.f, it, context))
             return false;
+
+        /*
+            Start of tes3mp addition
+
+            Whenever a player or local actor gains an active spell as a result of gameplay,
+            send a SpellsActive packet to the server
+        */
+        if (inserted->mSendPacket)
+        {
+            if (ptr == MWMechanics::getPlayer())
+            {
+                mwmp::Main::get().getLocalPlayer()->sendSpellsActiveAddition(
+                    inserted->mSourceSpellId.serializeText(),
+                    inserted->hasFlag(ESM::ActiveSpells::Flag_Stackable), *inserted);
+            }
+            else if (mwmp::Main::get().getCellController()->isLocalActor(ptr))
+            {
+                mwmp::Main::get().getCellController()->getLocalActor(ptr)->sendSpellsActiveAddition(
+                    inserted->mSourceSpellId.serializeText(),
+                    inserted->hasFlag(ESM::ActiveSpells::Flag_Stackable), *inserted);
+            }
+        }
+        /*
+            End of tes3mp addition
+        */
+
         return true;
     }
 
@@ -497,7 +565,25 @@ namespace MWMechanics
                 if (!spell.hasFlag(ESM::ActiveSpells::Flag_Temporary))
                     return;
                 if (merge(found->mEffects, spell.mEffects))
+                {
+                    if (spell.mSendPacket)
+                    {
+                        found->mTimeStamp = spell.mTimeStamp;
+                        if (ptr == MWMechanics::getPlayer())
+                        {
+                            mwmp::Main::get().getLocalPlayer()->sendSpellsActiveAddition(
+                                found->mSourceSpellId.serializeText(),
+                                found->hasFlag(ESM::ActiveSpells::Flag_Stackable), *found);
+                        }
+                        else if (mwmp::Main::get().getCellController()->isLocalActor(ptr))
+                        {
+                            mwmp::Main::get().getCellController()->getLocalActor(ptr)->sendSpellsActiveAddition(
+                                found->mSourceSpellId.serializeText(),
+                                found->hasFlag(ESM::ActiveSpells::Flag_Stackable), *found);
+                        }
+                    }
                     return;
+                }
                 for (auto& effect : found->mEffects)
                     effect.mTimeLeft = 0.f;
             }
@@ -548,7 +634,11 @@ namespace MWMechanics
 
     void ActiveSpells::addSpell(const ActiveSpellParams& params)
     {
-        mQueue.emplace_back(params);
+        ActiveSpellParams copy = params;
+        if (copy.mTimeStamp.getDay() == 0 && copy.mTimeStamp.getHour() == 0.f)
+            copy.mTimeStamp = MWBase::Environment::get().getWorld()->getTimeStamp();
+        copy.mSendPacket = true;
+        mQueue.emplace_back(std::move(copy));
     }
 
     void ActiveSpells::addSpell(const ESM::Spell* spell, const MWWorld::Ptr& actor, bool ignoreResistances)

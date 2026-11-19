@@ -26,6 +26,18 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     TravelWindow::TravelWindow()
@@ -194,7 +206,23 @@ namespace MWGui
 
         // add gold to NPC trading gold pool
         MWMechanics::CreatureStats& npcStats = mPtr.getClass().getCreatureStats(mPtr);
-        npcStats.setGoldPool(npcStats.getGoldPool() + price);
+
+        /*
+            Start of tes3mp change (major)
+
+            Don't unilaterally change the merchant's gold pool on our client and instead let the server do it
+        */
+        //npcStats.setGoldPool(npcStats.getGoldPool() + price);
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->addObjectMiscellaneous(mPtr, npcStats.getGoldPool() + price,
+            npcStats.getLastRestockTime().getHour(), npcStats.getLastRestockTime().getDay());
+        objectList->sendObjectMiscellaneous();
+        /*
+            End of tes3mp change (major)
+        */
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(1);
         ESM::Position pos = *sender->getUserData<ESM::Position>();
@@ -211,7 +239,16 @@ namespace MWGui
                                               ->mValue.getFloat();
             int hours = static_cast<int>(d / fTravelTimeMult);
             MWBase::Environment::get().getMechanicsManager()->rest(hours, true);
-            MWBase::Environment::get().getWorld()->advanceTime(hours);
+
+            /*
+                Start of tes3mp change (major)
+
+                Multiplayer requires that time not get advanced here
+            */
+            //MWBase::Environment::get().getWorld()->advanceTime(hours);
+            /*
+                End of tes3mp change (major)
+            */
         }
 
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Travel);

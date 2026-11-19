@@ -43,6 +43,20 @@
 #include "settings.hpp"
 #include "sortfilteritemmodel.hpp"
 #include "statswindow.hpp"
+
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwworld/cellstore.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
 #include "tooltips.hpp"
 #include "tradeitemmodel.hpp"
 #include "tradewindow.hpp"
@@ -704,7 +718,17 @@ namespace MWGui
                     mDragAndDrop->mItem, mDragAndDrop->mDraggedCount, mTradeModel);
             }
 
-            MWBase::Environment::get().getLuaManager()->useItem(ptr, MWMechanics::getPlayer(), false);
+            /*
+                Start of tes3mp change (major)
+
+                Instead of unilaterally using an item, send an ID_PLAYER_ITEM_USE packet and let the server
+                decide if the item actually gets used
+            */
+            //MWBase::Environment::get().getLuaManager()->useItem(ptr, MWMechanics::getPlayer(), false);
+            mwmp::Main::get().getLocalPlayer()->sendItemUse(ptr);
+            /*
+                End of tes3mp change (major)
+            */
         }
         else
         {
@@ -840,6 +864,21 @@ namespace MWGui
         // can't use ActionTake here because we need an MWWorld::Ptr to the newly inserted object
         MWWorld::Ptr newObject = *player.getClass().getContainerStore(player).add(object, count);
 
+        /*
+            Start of tes3mp addition
+
+            Send an ID_OBJECT_DELETE packet every time an item from the world is picked up
+            by the player through the inventory HUD
+        */
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->addObjectGeneric(object);
+        objectList->sendObjectDelete();
+        /*
+            End of tes3mp addition
+        */
+
         // remove from world
         MWBase::Environment::get().getWorld()->deleteObject(object);
 
@@ -928,7 +967,17 @@ namespace MWGui
         if (!found || selected == cycled)
             return;
 
-        useItem(model.getItem(cycled).mBase);
+        /*
+            Start of tes3mp change (major)
+
+            Instead of unilaterally using an item, send an ID_PLAYER_ITEM_USE packet and let the server
+            decide if the item actually gets used
+        */
+        //useItem(model.getItem(cycled).mBase);
+        mwmp::Main::get().getLocalPlayer()->sendItemUse(model.getItem(cycled).mBase);
+        /*
+            End of tes3mp change (major)
+        */
     }
 
     void InventoryWindow::rebuildAvatar()

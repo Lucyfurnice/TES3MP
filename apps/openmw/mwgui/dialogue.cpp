@@ -36,6 +36,19 @@
 #include "bookpage.hpp"
 #include "textcolours.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include <components/openmw-mp/TimedLog.hpp>
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     void ResponseCallback::addResponse(std::string_view title, std::string_view text)
@@ -412,6 +425,18 @@ namespace MWGui
 
     void DialogueWindow::onSelectListItem(const std::string& topic, int /*id*/)
     {
+        /*
+            Start of tes3mp change (major)
+
+            Instead of activating a list item here, send an ObjectDialogueChoice packet to the server
+            and let it decide whether the list item gets activated
+        */
+        sendDialogueChoicePacket(topic);
+        return;
+        /*
+            End of tes3mp change (major)
+        */
+
         MWBase::DialogueManager* dialogueManager = MWBase::Environment::get().getDialogueManager();
 
         if (mGoodbye || dialogueManager->isInChoice())
@@ -469,6 +494,25 @@ namespace MWGui
         else
             updateTopics();
     }
+
+    /*
+        Start of tes3mp addition
+
+        A different event that should be used in multiplayer when clicking on choices
+        in the dialogue screen, sending DialogueChoice packets to the server so they can
+        be approved or denied
+    */
+    void DialogueWindow::sendDialogueChoicePacket(const std::string& topic)
+    {
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->addObjectDialogueChoice(mPtr, topic);
+        objectList->sendObjectDialogueChoice();
+    }
+    /*
+        End of tes3mp addition
+    */
 
     void DialogueWindow::activateDialogueChoice(unsigned char dialogueChoiceType, std::string topic)
     {
@@ -572,9 +616,26 @@ namespace MWGui
         // Gold is restocked every 24h
         if (MWBase::Environment::get().getWorld()->getTimeStamp() >= sellerStats.getLastRestockTime() + delay)
         {
+            /*
+                Start of tes3mp change (major)
+
+                Instead of restocking the NPC's gold pool or last restock time here, send a packet about them to the server
+            */
+            /*
             sellerStats.setGoldPool(mPtr.getClass().getBaseGold(mPtr));
 
             sellerStats.setLastRestockTime(MWBase::Environment::get().getWorld()->getTimeStamp());
+            */
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->addObjectMiscellaneous(mPtr, mPtr.getClass().getBaseGold(mPtr),
+                MWBase::Environment::get().getWorld()->getTimeStamp().getHour(),
+                MWBase::Environment::get().getWorld()->getTimeStamp().getDay());
+            objectList->sendObjectMiscellaneous();
+            /*
+                End of tes3mp change (major)
+            */
         }
     }
 
@@ -670,7 +731,17 @@ namespace MWGui
 
             auto t = std::make_unique<Topic>(keyword);
             mKeywordSearch.seed(translationStorage.topicKeyword(keyword), topicId);
-            t->eventTopicActivated += MyGUI::newDelegate(this, &DialogueWindow::onTopicActivated);
+            /*
+                Start of tes3mp change (major)
+
+                Instead of running DialogueWindow::onTopicActivated() when clicking a highlighted topic, run
+                sendDialogueChoicePacket() so the server can approve or deny a dialogue choice
+            */
+            //t->eventTopicActivated += MyGUI::newDelegate(this, &DialogueWindow::onTopicActivated);
+            t->eventTopicActivated += MyGUI::newDelegate(this, &DialogueWindow::sendDialogueChoicePacket);
+            /*
+                End of tes3mp change (major)
+            */
             mTopicLinks[topicId] = std::move(t);
 
             if (keyword == focusedTopic)

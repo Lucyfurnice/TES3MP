@@ -26,7 +26,7 @@ namespace MWGui
         void createMessageBox(std::string_view message, bool stat = false);
         void removeStaticMessageBox();
         bool createInteractiveMessageBox(std::string_view message, const std::vector<std::string>& buttons,
-            bool immediate = false, int defaultFocus = -1);
+            bool immediate = false, int defaultFocus = -1, bool hasServerOrigin = false);
         bool isInteractiveMessageBox();
 
         std::size_t getMessagesCount();
@@ -102,6 +102,16 @@ namespace MWGui
         bool exit() override { return false; }
 
         bool mMarkedToDelete;
+
+        /*
+            Start of tes3mp addition
+
+            Track whether the message box has a server origin
+        */
+        bool mHasServerOrigin = false;
+        /*
+            End of tes3mp addition
+        */
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 

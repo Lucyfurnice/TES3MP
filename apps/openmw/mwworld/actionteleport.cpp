@@ -1,5 +1,21 @@
 #include "actionteleport.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwbase/windowmanager.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ActorList.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+/*
+    End of tes3mp addition
+*/
+
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadmgef.hpp>
 
@@ -61,13 +77,81 @@ namespace MWWorld
         }
         else
         {
+            /*
+                Start of tes3mp addition
+
+                Track the original cell of this actor so we can use it when sending a packet
+            */
+            ESM::Cell originalCell = actor.getCell()->getCell()->getEsm3();
+            /*
+                End of tes3mp addition
+            */
+
+            /*
+                Start of tes3mp change (minor)
+
+                If this is a DedicatedActor, get their new cell and override their stored cell with it
+                so their cell change is approved in World::moveObject()
+            */
+            MWWorld::CellStore* newCellStore = &worldModel->getCell(mCellId);
+            mwmp::CellController* cellController = mwmp::Main::get().getCellController();
+
             if (actor.getClass().getCreatureStats(actor).getAiSequence().isInCombat(world->getPlayerPtr()))
             {
                 actor.getClass().getCreatureStats(actor).getAiSequence().stopCombat();
                 return;
             }
             else
-                teleported = world->moveObject(actor, &worldModel->getCell(mCellId), mPosition.asVec3(), true, true);
+            {
+                if (cellController->isDedicatedActor(actor))
+                    cellController->getDedicatedActor(actor)->cell = newCellStore->getCell()->getEsm3();
+
+                teleported = world->moveObject(actor, newCellStore, mPosition.asVec3(), true, true);
+            }
+            /*
+                End of tes3mp change (minor)
+            */
+
+            /*
+                Start of tes3mp addition
+
+                Send ActorCellChange packets when an actor follows us across cells, regardless of
+                whether we're the cell authority or not; the server can decide if it wants to comply
+                with them
+
+                Afterwards, send an ActorAI packet about this actor being our follower, to ensure
+                they remain our follower even if the destination cell has another player as its
+                cell authority
+            */
+            mwmp::BaseActor baseActor;
+            baseActor.refNum = teleported.getCellRef().getRefNum().mIndex;
+            baseActor.mpNum = teleported.getCellRef().getMpNum();
+            baseActor.cell = newCellStore->getCell()->getEsm3();
+            baseActor.position = teleported.getRefData().getPosition();
+            baseActor.isFollowerCellChange = true;
+
+            mwmp::ActorList* actorList = mwmp::Main::get().getNetworking()->getActorList();
+            actorList->reset();
+            actorList->cell = originalCell;
+
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Sending ID_ACTOR_CELL_CHANGE about %s %i-%i to server",
+                teleported.getCellRef().getRefId().serializeText().c_str(), baseActor.refNum, baseActor.mpNum);
+
+            LOG_APPEND(TimedLog::LOG_INFO, "- Moved from %s to %s", actorList->cell.getDescription().c_str(),
+                baseActor.cell.getDescription().c_str());
+
+            actorList->addCellChangeActor(baseActor);
+            actorList->sendCellChangeActors();
+
+            // Send ActorAI to bring all players in the new cell up to speed with this follower
+            actorList->cell = baseActor.cell;
+            baseActor.aiAction = mwmp::BaseActorList::FOLLOW;
+            baseActor.aiTarget = MechanicsHelper::getTarget(world->getPlayerPtr());
+            actorList->addAiActor(baseActor);
+            actorList->sendAiActors();
+            /*
+                End of tes3mp addition
+            */
         }
 
         if (!world->isWaterWalkingCastableOnTarget(teleported) && MWMechanics::hasWaterWalking(teleported))

@@ -13,6 +13,19 @@
 
 #include <stdexcept>
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwworld/cellstore.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     // Makes it possible to use ItemModel::moveItem to move an item from an inventory to the world.
@@ -31,6 +44,32 @@ namespace MWGui
                 : world.dropObjectOnGround(player, item.mBase, count, copy);
 
             dropped.getCellRef().setOwner(ESM::RefId());
+
+            /*
+                Start of tes3mp addition
+
+                Send an ID_OBJECT_PLACE packet every time an object is dropped into the world from
+                the inventory screen
+            */
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->addObjectPlace(dropped, true);
+            objectList->sendObjectPlace();
+            /*
+                End of tes3mp addition
+            */
+
+            /*
+                Start of tes3mp change (major)
+
+                Instead of actually keeping this object as is, delete it after sending the packet
+                and wait for the server to send it back with a unique RefNum of its own
+            */
+            world.deleteObject(dropped);
+            /*
+                End of tes3mp change (major)
+            */
 
             return dropped;
         }

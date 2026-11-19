@@ -31,6 +31,22 @@
 #include "sortfilteritemmodel.hpp"
 #include "tooltips.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwworld/cellstore.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/CellController.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
 
@@ -119,6 +135,39 @@ namespace MWGui
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
+        /*
+            Start of tes3mp addition
+
+            Send an ID_CONTAINER packet every time an item starts being dragged
+            from a container
+        */
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->cell = mPtr.getCell()->getCell()->getEsm3();
+        objectList->action = mwmp::BaseObjectList::REMOVE;
+        objectList->containerSubAction = mwmp::BaseObjectList::DRAG;
+
+        mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(mPtr);
+        MWWorld::Ptr itemPtr = mModel->getItem(mSelectedItem).mBase;
+        objectList->addContainerItem(baseObject, itemPtr, itemPtr.getCellRef().getCount(), static_cast<int>(count));
+        objectList->addBaseObject(baseObject);
+        objectList->sendContainer();
+        /*
+            End of tes3mp addition
+        */
+
+        /*
+            Start of tes3mp change (major)
+
+            Avoid running any of the original code for dragging items, to prevent possibilities
+            for item duping or interaction with restricted containers
+        */
+        return;
+        /*
+            End of tes3mp change (major)
+        */
+
         mDragAndDrop->startDrag(mSelectedItem, mSortModel, mModel, mItemView, count);
     }
 
@@ -132,6 +181,28 @@ namespace MWGui
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
+        /*
+            Start of tes3mp addition
+
+            Send an ID_CONTAINER packet every time an item is quick-transferred
+            from a container and skip unilateral client-side transfer
+        */
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->cell = mPtr.getCell()->getCell()->getEsm3();
+        objectList->action = mwmp::BaseObjectList::REMOVE;
+        objectList->containerSubAction = mwmp::BaseObjectList::NONE;
+
+        mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(mPtr);
+        objectList->addContainerItem(baseObject, item.mBase, item.mBase.getCellRef().getCount(), static_cast<int>(count));
+        objectList->addBaseObject(baseObject);
+        objectList->sendContainer();
+        return;
+        /*
+            End of tes3mp addition
+        */
+
         mItemTransfer->apply(item, count, *mItemView);
     }
 
@@ -142,8 +213,45 @@ namespace MWGui
 
         bool success = mModel->onDropItem(mDragAndDrop->mItem.mBase, static_cast<int>(mDragAndDrop->mDraggedCount));
 
+        /*
+            Start of tes3mp addition
+
+            Send an ID_CONTAINER packet every time an item is dropped in a container
+        */
         if (success)
-            mDragAndDrop->drop(mModel, mItemView);
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->cell = mPtr.getCell()->getCell()->getEsm3();
+            objectList->action = mwmp::BaseObjectList::ADD;
+            objectList->containerSubAction = mwmp::BaseObjectList::DROP;
+
+            mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(mPtr);
+            MWWorld::Ptr itemPtr = mDragAndDrop->mItem.mBase;
+            objectList->addContainerItem(baseObject, itemPtr, static_cast<int>(mDragAndDrop->mDraggedCount), 0);
+            objectList->addBaseObject(baseObject);
+            objectList->sendContainer();
+        }
+        /*
+            End of tes3mp addition
+        */
+
+        /*
+            Start of tes3mp change (major)
+
+            For valid drops, avoid running the original code for the item transfer, to prevent unilateral
+            item duping or interaction on this client
+
+            Instead, finish the drag in a way that removes the items in it, and let the server's reply handle
+            the rest
+        */
+        if (success)
+            // mDragAndDrop->drop(mModel, mItemView);
+            mDragAndDrop->finish(true);
+        /*
+            End of tes3mp change (major)
+        */
     }
 
     void ContainerWindow::onBackgroundSelected()
@@ -156,6 +264,16 @@ namespace MWGui
     {
         if (container.isEmpty() || (container.getType() != ESM::REC_CONT && !container.getClass().isActor()))
             throw std::runtime_error("Invalid argument in ContainerWindow::setPtr");
+        /*
+            Start of tes3mp addition
+
+            Mark this container as open for multiplayer logic purposes
+        */
+        mwmp::Main::get().getLocalPlayer()->storeCurrentContainer(container);
+        /*
+            End of tes3mp addition
+        */
+
         bool lootAnyway = mTreatNextOpenAsLoot;
         mTreatNextOpenAsLoot = false;
         mPtr = container;
@@ -211,6 +329,16 @@ namespace MWGui
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Container))
             return;
 
+        /*
+            Start of tes3mp addition
+
+            Mark this container as closed for multiplayer logic purposes
+        */
+        mwmp::Main::get().getLocalPlayer()->clearCurrentContainer();
+        /*
+            End of tes3mp addition
+        */
+
         if (mModel)
             mModel->onClose();
 
@@ -234,6 +362,52 @@ namespace MWGui
             return;
 
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
+
+        /*
+            Start of tes3mp addition
+
+            Send an ID_CONTAINER packet every time the Take All button is used on
+            a container
+        */
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->cell = mPtr.getCell()->getCell()->getEsm3();
+        objectList->action = mwmp::BaseObjectList::REMOVE;
+        objectList->containerSubAction = mwmp::BaseObjectList::TAKE_ALL;
+        mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(mPtr);
+
+        for (size_t i = 0; i < mModel->getItemCount(); ++i)
+        {
+            const ItemStack& item = mModel->getItem(static_cast<ItemModel::ModelIndex>(i));
+
+            // Trigger crimes related to the attempted taking of these items, if applicable
+            if (!mModel->onTakeItem(item.mBase, static_cast<int>(item.mCount)))
+                break;
+
+            objectList->addContainerItem(
+                baseObject, item, static_cast<int>(item.mCount), static_cast<int>(item.mCount));
+        }
+
+        if (baseObject.containerItems.size() > 0)
+        {
+            objectList->addBaseObject(baseObject);
+            objectList->sendContainer();
+        }
+        /*
+            End of tes3mp addition
+        */
+
+        /*
+            Start of tes3mp change (major)
+
+            Avoid running any of the original code for taking all items, to prevent
+            possibilities for item duping or interaction with restricted containers
+        */
+        return;
+        /*
+            End of tes3mp change (major)
+        */
 
         // transfer everything into the player's inventory
         ItemModel* playerModel = MWBase::Environment::get().getWindowManager()->getInventoryWindow()->getModel();
@@ -291,6 +465,15 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->messageBox("#{sDisposeCorpseFail}");
             else
             {
+                /*
+                    Start of tes3mp change (major)
+
+                    Instead of deleting the corpse on this client, increasing the death count and
+                    running the dead actor's script, simply send an ID_OBJECT_DELETE packet to the server
+                    as a request for the deletion
+                */
+
+                /*
                 MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
 
                 // If we dispose corpse before end of death animation, we should update death counter counter manually.
@@ -334,9 +517,17 @@ namespace MWGui
                 }
 
                 MWBase::Environment::get().getWorld()->deleteObject(ptr);
-            }
+                */
 
-            mPtr = MWWorld::Ptr();
+                mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                objectList->reset();
+                objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                objectList->addObjectGeneric(ptr);
+                objectList->sendObjectDelete();
+                /*
+                    End of tes3mp change (major)
+                */
+            }
         }
     }
 

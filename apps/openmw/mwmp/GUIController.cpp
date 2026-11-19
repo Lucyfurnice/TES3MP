@@ -145,7 +145,7 @@ void mwmp::GUIController::showCustomMessageBox(const BasePlayer::GUIMessageBox &
 {
     MWBase::WindowManager* windowManager = MWBase::Environment::get().getWindowManager();
     std::vector<std::string> buttons = splitString(guiMessageBox.buttons);
-    windowManager->interactiveMessageBox(guiMessageBox.label, buttons, false);
+    windowManager->interactiveMessageBox(guiMessageBox.label, buttons, false, -1, true);
 }
 
 void mwmp::GUIController::showInputBox(const BasePlayer::GUIMessageBox &guiMessageBox)

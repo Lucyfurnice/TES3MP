@@ -79,6 +79,7 @@ namespace MWGui
         virtual MWWorld::Ptr copyItem(const ItemStack& item, size_t count, bool allowAutoEquip = true) = 0;
         virtual void removeItem(const ItemStack& item, size_t count) = 0;
         friend class ProxyItemModel;
+        friend class DragAndDrop;
 
     private:
         ItemModel(const ItemModel&);

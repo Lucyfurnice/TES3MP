@@ -18,6 +18,17 @@
 
 #include "jailscreen.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     JailScreen::JailScreen()
@@ -44,6 +55,17 @@ namespace MWGui
         mProgressBar->setScrollRange(100 + 1);
         mProgressBar->setScrollPosition(0);
         mProgressBar->setTrackSize(0);
+
+        /*
+            Start of tes3mp addition
+
+            If we've received a packet overriding the default jail progress text, use the new text
+        */
+        if (!mwmp::Main::get().getLocalPlayer()->jailProgressText.empty())
+            setText("LoadingText", mwmp::Main::get().getLocalPlayer()->jailProgressText);
+        /*
+            End of tes3mp addition
+        */
     }
 
     void JailScreen::onFrame(float dt)
@@ -58,10 +80,22 @@ namespace MWGui
         if (mFadeTimeRemaining <= 0)
         {
             MWWorld::Ptr player = MWMechanics::getPlayer();
-            MWBase::Environment::get().getWorld()->teleportToClosestMarker(
-                player, ESM::RefId::stringRefId("prisonmarker"));
-            MWBase::Environment::get().getWindowManager()->fadeScreenOut(
-                0.f); // override fade-in caused by cell transition
+
+            /*
+                Start of tes3mp change (minor)
+
+                Prevent teleportation to jail if specified
+            */
+            if (!mwmp::Main::get().getLocalPlayer()->ignoreJailTeleportation)
+            {
+                MWBase::Environment::get().getWorld()->teleportToClosestMarker(
+                    player, ESM::RefId::stringRefId("prisonmarker"));
+                MWBase::Environment::get().getWindowManager()->fadeScreenOut(
+                    0.f); // override fade-in caused by cell transition
+            }
+            /*
+                End of tes3mp change (minor)
+            */
 
             setVisible(true);
             mTimeAdvancer.run(100);
@@ -82,11 +116,35 @@ namespace MWGui
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
 
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+
         MWBase::Environment::get().getMechanicsManager()->rest(mDays * 24, true);
-        MWBase::Environment::get().getWorld()->advanceTime(mDays * 24);
+
+        /*
+            Start of tes3mp change (major)
+
+            Multiplayer requires that time not get advanced here
+        */
+        //MWBase::Environment::get().getWorld()->advanceTime(mDays * 24);
+        /*
+            End of tes3mp change (major)
+        */
 
         // We should not worsen corprus when in prison
         player.getClass().getCreatureStats(player).getActiveSpells().skipWorsenings(mDays * 24);
         MWBase::Environment::get().getLuaManager()->jailTimeServed(player, mDays);
+
+        /*
+            Start of tes3mp addition
+
+            Reset all PlayerJail-related overrides
+        */
+        localPlayer->ignoreJailTeleportation = false;
+        localPlayer->ignoreJailSkillIncreases = false;
+        localPlayer->jailProgressText = "";
+        localPlayer->jailEndText = "";
+        /*
+            End of tes3mp addition
+        */
     }
 }

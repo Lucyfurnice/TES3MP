@@ -2,6 +2,18 @@
 
 #include <components/esm3/aisequence.hpp>
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+/*
+    End of tes3mp addition
+*/
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/world.hpp"
@@ -43,9 +55,33 @@ namespace MWMechanics
 
         if (MWBase::Environment::get().getWorld()->getMaxActivationDistance() >= targetDir.length())
         {
-            // Note: we intentionally do not cancel package after activation here for backward compatibility with
-            // original engine.
-            MWBase::Environment::get().getLuaManager()->objectActivated(target, actor);
+            /*
+                Start of tes3mp addition
+
+                Send an ID_OBJECT_ACTIVATE packet every time an object is activated here
+            */
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->addObjectActivate(target, actor);
+            objectList->sendObjectActivate();
+            /*
+                End of tes3mp addition
+            */
+
+            /*
+                Start of tes3mp change (major)
+
+                Disable unilateral activation on this client and expect the server's reply to our
+                packet to do it instead
+
+                Cancel the package to avoid an infinite activation loop
+            */
+            //MWBase::Environment::get().getLuaManager()->objectActivated(target, actor);
+            return true;
+            /*
+                End of tes3mp change (major)
+            */
         }
         return false;
     }

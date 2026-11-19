@@ -32,6 +32,18 @@
 #include "sortfilteritemmodel.hpp"
 #include "widgets.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWGui
 {
     AlchemyWindow::AlchemyWindow()
@@ -130,6 +142,16 @@ namespace MWGui
         MWMechanics::Alchemy::Result result = mAlchemy->create(mNameEdit->getCaption(), count);
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
 
+        /*
+            Start of tes3mp addition
+
+            Declare objectList here so we can use it below
+        */
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        /*
+            End of tes3mp addition
+        */
+
         switch (result)
         {
             case MWMechanics::Alchemy::Result_NoName:
@@ -143,6 +165,20 @@ namespace MWGui
                 break;
             case MWMechanics::Alchemy::Result_Success:
                 winMgr->playSound(ESM::RefId::stringRefId("potion success"));
+
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_OBJECT_SOUND packet every time the player makes a sound here
+                */
+                objectList->reset();
+                objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                objectList->addObjectSound(MWMechanics::getPlayer(), "potion success", 1.0, 1.0);
+                objectList->sendObjectSound();
+                /*
+                    End of tes3mp addition
+                */
+
                 if (count == 1)
                     winMgr->messageBox("#{sPotionSuccess}");
                 else
@@ -153,6 +189,20 @@ namespace MWGui
             case MWMechanics::Alchemy::Result_RandomFailure:
                 winMgr->messageBox("#{sNotifyMessage8}");
                 winMgr->playSound(ESM::RefId::stringRefId("potion fail"));
+
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_OBJECT_SOUND packet every time the player makes a sound here
+                */
+                objectList->reset();
+                objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+                objectList->addObjectSound(MWMechanics::getPlayer(), "potion fail", 1.0, 1.0);
+                objectList->sendObjectSound();
+                /*
+                    End of tes3mp addition
+                */
+
                 break;
         }
 

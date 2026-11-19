@@ -33,6 +33,21 @@
 #include "spellcasting.hpp"
 #include "spellresistance.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/PlayerList.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace
 {
 
@@ -136,8 +151,30 @@ namespace MWMechanics
         int x = std::clamp(static_cast<int>(blockerTerm - attackerTerm), iBlockMinChance, iBlockMaxChance);
 
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
-        if (Misc::Rng::roll0to99(prng) < x)
+        /*
+            Start of tes3mp change (major)
+
+            Only calculate block chance for LocalPlayers and LocalActors; otherwise,
+            get the block state from the relevant DedicatedPlayer or DedicatedActor
+        */
+        mwmp::Attack* localAttack = MechanicsHelper::getLocalAttack(attacker);
+
+        if (localAttack)
         {
+            localAttack->block = false;
+        }
+
+        mwmp::Attack* dedicatedAttack = MechanicsHelper::getDedicatedAttack(blocker);
+
+        if ((dedicatedAttack && dedicatedAttack->block == true) || Misc::Rng::roll0to99(prng) < x)
+        {
+            if (localAttack)
+            {
+                localAttack->block = true;
+            }
+        /*
+            End of tes3mp change (major)
+        */
             MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
             const ESM::RefId skill = shield->getClass().getEquipmentSkill(*shield);
             if (skill == ESM::Skill::LightArmor)
@@ -224,6 +261,29 @@ namespace MWMechanics
     void projectileHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, MWWorld::Ptr weapon,
         const MWWorld::Ptr& projectile, const osg::Vec3f& hitPosition, float attackStrength)
     {
+        /*
+            Start of tes3mp addition
+
+            Ignore projectiles fired by DedicatedPlayers and DedicatedActors
+
+            If fired by LocalPlayers and LocalActors, get the associated LocalAttack and set its type
+            to RANGED while also marking it as a hit
+        */
+        if (mwmp::PlayerList::isDedicatedPlayer(attacker)
+            || mwmp::Main::get().getCellController()->isDedicatedActor(attacker))
+            return;
+
+        mwmp::Attack* localAttack = MechanicsHelper::getLocalAttack(attacker);
+
+        if (localAttack)
+        {
+            localAttack->type = mwmp::Attack::RANGED;
+            localAttack->isHit = true;
+        }
+        /*
+            End of tes3mp addition
+        */
+
         MWBase::World* world = MWBase::Environment::get().getWorld();
         const MWWorld::Store<ESM::GameSetting>& gmst = world->getStore().get<ESM::GameSetting>();
 
@@ -241,8 +301,30 @@ namespace MWMechanics
 
             int skillValue = static_cast<int>(attacker.getClass().getSkill(attacker, weaponSkill));
 
+            /*
+                Start of tes3mp addition
+
+                Mark this as a successful attack for the associated LocalAttack unless proven otherwise
+            */
+            if (localAttack)
+                localAttack->success = true;
+            /*
+                End of tes3mp addition
+            */
+
             if (Misc::Rng::roll0to99(world->getPrng()) >= getHitChance(attacker, victim, skillValue))
             {
+                /*
+                    Start of tes3mp addition
+
+                    Mark this as a failed LocalAttack now that the hit roll has failed
+                */
+                if (localAttack)
+                    localAttack->success = false;
+                /*
+                    End of tes3mp addition
+                */
+
                 MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0,
                     attackStrength, damage, false, hitPosition, false, MWMechanics::DamageSourceType::Ranged);
                 MWMechanics::reduceWeaponCondition(damage, false, weapon, attacker);
@@ -291,6 +373,18 @@ namespace MWMechanics
         // Apply "On hit" effect of the projectile
         bool appliedEnchantment = applyOnStrikeEnchantment(attacker, victim, projectile, hitPosition, true);
 
+        /*
+            Start of tes3mp change (minor)
+
+            Track whether the strike enchantment is successful for attacks by the
+            LocalPlayer or LocalActors for their projectile
+        */
+        if (localAttack)
+            localAttack->applyAmmoEnchantment = appliedEnchantment;
+        /*
+            End of tes3mp change (minor)
+        */
+
         if (validVictim)
         {
             // Non-enchanted arrows shot at enemies have a chance to turn up in their inventory
@@ -305,6 +399,19 @@ namespace MWMechanics
             MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0, attackStrength,
                 damage, true, hitPosition, true, MWMechanics::DamageSourceType::Ranged);
         }
+        /*
+            Start of tes3mp addition
+
+            If this is a local attack that had no victim, send a packet for it here
+        */
+        else if (localAttack)
+        {
+            localAttack->hitPosition = MechanicsHelper::getPositionFromVector(hitPosition);
+            localAttack->shouldSend = true;
+        }
+        /*
+            End of tes3mp addition
+        */
     }
 
     float getHitChance(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, int skillValue)
@@ -712,20 +819,53 @@ namespace MWMechanics
     bool friendlyHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& target, bool complain)
     {
         const MWWorld::Ptr& player = getPlayer();
-        if (attacker != player)
+        /*
+            Start of tes3mp change (major)
+
+            Allow collateral damage from dedicated players as well
+        */
+        if (attacker != player && !mwmp::PlayerList::isDedicatedPlayer(attacker))
             return false;
+        /*
+            End of tes3mp change (major)
+        */
 
         std::set<MWWorld::Ptr> followersAttacker;
         MWBase::Environment::get().getMechanicsManager()->getActorsSidingWith(attacker, followersAttacker);
-        if (followersAttacker.find(target) == followersAttacker.end())
+
+        /*
+            Start of tes3mp change (major)
+
+            Check not only whether the target is on the same side as the attacker,
+            but also whether the attacker is on the same side as the target,
+            thus allowing for NPC companions of one player to forgive another player
+            when those players are allied
+        */
+        std::set<MWWorld::Ptr> followersTarget;
+        MWBase::Environment::get().getMechanicsManager()->getActorsSidingWith(target, followersTarget);
+
+        if (followersAttacker.find(target) == followersAttacker.end()
+            && followersTarget.find(attacker) == followersTarget.end())
             return false;
+        /*
+            End of tes3mp change (major)
+        */
 
         MWMechanics::CreatureStats& statsTarget = target.getClass().getCreatureStats(target);
         if (statsTarget.getAiSequence().isInCombat())
             return true;
         statsTarget.friendlyHit();
-        if (statsTarget.getFriendlyHits() >= 4)
+        /*
+            Start of tes3mp change (major)
+
+            Due to a greater propensity for collateral damage in multiplayer,
+            allow more friendly hits
+        */
+        if (statsTarget.getFriendlyHits() >= 8)
             return false;
+        /*
+            End of tes3mp change (major)
+        */
 
         if (complain)
             MWBase::Environment::get().getDialogueManager()->say(target, ESM::RefId::stringRefId("hit"));

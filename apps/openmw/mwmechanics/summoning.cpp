@@ -20,6 +20,22 @@
 #include "aifollow.hpp"
 #include "creaturestats.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/esm3/loadmgef.hpp>
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwworld/cellstore.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/ObjectList.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace MWMechanics
 {
 
@@ -105,17 +121,28 @@ namespace MWMechanics
         return ESM::RefId();
     }
 
-    ESM::RefNum summonCreature(ESM::RefId effectId, const MWWorld::Ptr& summoner)
+    ESM::RefNum summonCreature(ESM::RefId effectId, const MWWorld::Ptr& summoner, ESM::RefId sourceId)
     {
         const ESM::RefId& creatureID = getSummonedCreature(effectId);
         ESM::RefNum creature;
         if (!creatureID.empty())
         {
+            /*
+                Start of tes3mp change (major)
+
+                Send an ID_OBJECT_SPAWN packet every time a creature is summoned in a cell that we hold
+                authority over, then delete the creature and wait for the server to send it back with a
+                unique RefNum of its own
+
+                Comment out most of the code here except for the actual placement of the Ptr and the
+                creature insertion into the creatureMap
+            */
             try
             {
                 auto world = MWBase::Environment::get().getWorld();
                 MWWorld::ManualRef ref(world->getStore(), creatureID, 1);
                 MWWorld::Ptr placed = world->safePlaceObject(ref.getPtr(), summoner, summoner.getCell(), 0, 120.f);
+                /*
                 MWBase::Environment::get().getWorldModel()->registerPtr(placed);
                 creature = placed.getCellRef().getRefNum();
 
@@ -133,6 +160,23 @@ namespace MWMechanics
                             Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(fx->mModel)).value(), "",
                             false);
                 }
+                */
+
+                if (mwmp::Main::get().getCellController()->hasLocalAuthority(placed.getCell()->getCell()->getEsm3()))
+                {
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+
+                    MWMechanics::CreatureStats& actorCreatureStats = summoner.getClass().getCreatureStats(summoner);
+                    int effectNum = ESM::MagicEffect::refIdToIndex(effectId);
+                    float duration = actorCreatureStats.getActiveSpells().getEffectDuration(effectId, sourceId);
+                    objectList->addObjectSpawn(
+                        placed, summoner, sourceId.empty() ? "" : sourceId.toString(), effectNum, duration);
+                    objectList->sendObjectSpawn();
+                }
+
+                world->deleteObject(placed);
             }
             catch (std::exception& e)
             {
@@ -142,6 +186,9 @@ namespace MWMechanics
             }
 
             summoner.getClass().getCreatureStats(summoner).getSummonedCreatureMap().emplace(effectId, creature);
+            /*
+                End of tes3mp change (major)
+            */
         }
         return creature;
     }

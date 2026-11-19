@@ -32,6 +32,20 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
+/*
+    Start of tes3mp addition
+
+    Include additional headers for multiplayer purposes
+*/
+#include <components/openmw-mp/TimedLog.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/ObjectList.hpp"
+/*
+    End of tes3mp addition
+*/
+
 namespace
 {
     bool isWhitespace(MyGUI::UString::code_point c)
@@ -250,6 +264,34 @@ namespace MWGui
             try
             {
                 ConsoleInterpreterContext interpreterContext(*this, mPtr);
+
+                /*
+                    Start of tes3mp addition
+
+                    Send an ID_CONSOLE_COMMAND packet to the server with the
+                    command and target used
+
+                    Mark this InterpreterContext as having a CONSOLE context,
+                    so that packets sent by the Interpreter can have their
+                    origin determined by serverside scripts
+                */
+                interpreterContext.trackContextType(Interpreter::Context::CONSOLE);
+
+                mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                objectList->reset();
+                objectList->packetOrigin = mwmp::CLIENT_CONSOLE;
+                objectList->consoleCommand = command;
+
+                if (mPtr.isEmpty())
+                    objectList->cell = mwmp::Main::get().getLocalPlayer()->cell;
+                else
+                    objectList->addObjectGeneric(mPtr);
+
+                objectList->sendConsoleCommand();
+                /*
+                    End of tes3mp addition
+                */
+
                 Interpreter::Interpreter interpreter;
                 MWScript::installOpcodes(interpreter, mConsoleOnlyScripts);
                 const Interpreter::Program program = output.getProgram();
@@ -806,7 +848,18 @@ namespace MWGui
         if (!mConsoleMode.empty())
             title = mConsoleMode + " " + title;
         if (!mPtr.isEmpty())
-            title.append(" (" + mPtr.getCellRef().getRefId().toDebugString() + ")");
+            /*
+                Start of tes3mp change (major)
+
+                Display the selected object's refNum and mpNum alongside its refId in the
+                title of the console window, for easier debugging of almost everything
+            */
+            title.append(" (" + mPtr.getCellRef().getRefId().toDebugString() + ", "
+                + std::to_string(mPtr.getCellRef().getRefNum().mIndex) + "-"
+                + std::to_string(mPtr.getCellRef().getMpNum()) + ")");
+            /*
+                End of tes3mp change (major)
+            */
         setTitle(title);
     }
 

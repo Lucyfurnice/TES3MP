@@ -331,6 +331,17 @@ int MWMechanics::NpcStats::getCrimeId() const
 void MWMechanics::NpcStats::setCrimeId(int id)
 {
     mCrimeId = id;
+
+    /*
+        Start of tes3mp addition
+
+        Record this as the time of the last crime witnessed by this NPC
+    */
+    if (id != -1)
+        setCrimeTime(time(0));
+    /*
+        End of tes3mp addition
+    */
 }
 
 bool MWMechanics::NpcStats::hasSkillsForRank(const ESM::RefId& factionId, int rank) const
