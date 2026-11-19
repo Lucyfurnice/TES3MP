@@ -247,7 +247,9 @@ namespace MWMechanics
         std::string_view getWeaponShortGroup(int weaponType) const;
 
         bool getAttackingOrSpell() const;
+    public:
         void setAttackingOrSpell(bool attackingOrSpell) const;
+    private:
 
         std::string_view getDesiredAttackType() const;
 

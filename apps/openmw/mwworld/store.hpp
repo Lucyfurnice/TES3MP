@@ -435,6 +435,8 @@ namespace MWWorld
         const ESM::Pathgrid* search(const ESM::Cell& cell) const;
         const ESM::Pathgrid* search(const MWWorld::Cell& cell) const;
         const ESM::Pathgrid* find(const ESM::Cell& cell) const;
+
+        ESM::Pathgrid* insert(const ESM::Pathgrid& pathgrid);
     };
 
     template <>

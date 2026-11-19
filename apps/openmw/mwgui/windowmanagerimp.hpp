@@ -185,6 +185,8 @@ namespace MWGui
         MWGui::CountDialog* getCountDialog() override;
         MWGui::ConfirmationDialog* getConfirmationDialog() override;
         MWGui::TradeWindow* getTradeWindow() override;
+        MWGui::ContainerWindow* getContainerWindow() override;
+        MWGui::DialogueWindow* getDialogueWindow() override;
         MWGui::HUD* getHud() override;
         MWGui::PostProcessorHud* getPostProcessorHud() override;
         std::vector<MWGui::WindowBase*> getGuiModeWindows(GuiMode mode) override;
@@ -195,6 +197,8 @@ namespace MWGui
         void updateSpellWindow() override;
 
         void setConsoleSelectedObject(const MWWorld::Ptr& object) override;
+        void setConsolePtr(const MWWorld::Ptr& object) override;
+        void clearConsolePtr() override;
         MWWorld::Ptr getConsoleSelectedObject() const override;
         void printToConsole(const std::string& msg, std::string_view color) override;
         void setConsoleMode(std::string_view mode) override;
@@ -206,6 +210,7 @@ namespace MWGui
         void setDrowningTimeLeft(float time, float maxTime) override;
 
         void changeCell(const MWWorld::CellStore* cell) override; ///< change the active cell
+        void setGlobalMapImage(int cellX, int cellY, const std::vector<char>& imageData) override;
 
         void setFocusObject(const MWWorld::Ptr& focus) override;
         void setFocusObjectScreenCoords(float x, float y) override;
@@ -213,6 +218,7 @@ namespace MWGui
         void getMousePosition(int& x, int& y) override;
         void getMousePosition(float& x, float& y) override;
         void setDragDrop(bool dragDrop) override;
+        void finishDragDrop() override;
         bool getWorldMouseOver() override;
 
         float getScalingFactor() const override;
@@ -236,6 +242,7 @@ namespace MWGui
         void activateQuickKey(int index) override;
         /// update activated quick key state (if action executing was delayed for some reason)
         void updateActivatedQuickKey() override;
+        void setQuickKey(int slot, int quickKeyType, MWWorld::Ptr item, const ESM::RefId& spellId = {}) override;
 
         const ESM::RefId& getSelectedSpell() override { return mSelectedSpell; }
         void setSelectedSpell(const ESM::RefId& spellId, int successChancePercent) override;
@@ -300,6 +307,7 @@ namespace MWGui
         MWWorld::Ptr getWatchedActor() const override;
 
         void executeInConsole(const std::filesystem::path& path) override;
+        void executeCommandInConsole(const std::string& command) override;
 
         void enableRest() override { mRestAllowed = true; }
         bool getRestEnabled() override;

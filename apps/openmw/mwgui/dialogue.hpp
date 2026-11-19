@@ -146,6 +146,9 @@ namespace MWGui
 
         void notifyLinkClicked(TypesetBook::InteractiveId link);
 
+        void activateDialogueChoice(unsigned char dialogueChoiceType, std::string topic = "");
+        MWWorld::Ptr getPtr();
+
         void setPtr(const MWWorld::Ptr& actor) override;
 
         /// @return true if stale keywords were updated successfully

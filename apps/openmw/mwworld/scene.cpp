@@ -423,6 +423,12 @@ namespace MWWorld
             mRendering.notifyWorldSpaceChanged();
     }
 
+    void Scene::unloadCell(CellStore* cell)
+    {
+        const auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
+        unloadCell(cell, navigatorUpdateGuard.get());
+    }
+
     void Scene::loadCell(CellStore& cell, Loading::Listener* loadingListener, bool respawn, const osg::Vec3f& position,
         const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
     {

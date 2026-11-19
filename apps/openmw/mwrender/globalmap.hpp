@@ -44,6 +44,7 @@ namespace MWRender
         void worldPosToImageSpace(float x, float z, float& imageX, float& imageY);
 
         void exploreCell(int cellX, int cellY, osg::ref_ptr<osg::Texture2D> localMapTexture);
+        void setImage(int cellX, int cellY, const std::vector<char>& imageData);
 
         /// Clears the overlay
         void clear();

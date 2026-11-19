@@ -1,3 +1,4 @@
+#include <components/esm/exteriorcelllocation.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -8,6 +9,7 @@
 
 #include "../mwworld/player.hpp"
 #include "../mwworld/worldimp.hpp"
+#include "../mwworld/worldmodel.hpp"
 
 #include "Worldstate.hpp"
 #include "Main.hpp"
@@ -48,7 +50,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- spell record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- spell record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -60,7 +62,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- potion record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- potion record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -72,7 +74,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- enchantment record %s, %i\n-- baseId is %s", record.data.mId.c_str(), record.data.mData.mType,
+            LOG_APPEND(TimedLog::LOG_INFO, "- enchantment record %s, %i\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mData.mType,
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -84,7 +86,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- creature record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- creature record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -96,7 +98,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- NPC record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- NPC record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -108,7 +110,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- armor record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- armor record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -120,7 +122,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- book record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- book record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -132,7 +134,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- clothing record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- clothing record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -144,7 +146,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- miscellaneous record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- miscellaneous record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -156,7 +158,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- weapon record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- weapon record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -168,7 +170,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- container record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- container record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -180,7 +182,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- door record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- door record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -192,7 +194,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- activator record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- activator record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -204,7 +206,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- static record %s\n-- baseId is %s", record.data.mId.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- static record %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -216,7 +218,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- ingredient record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- ingredient record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -228,7 +230,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- apparatus record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- apparatus record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -240,7 +242,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- lockpick record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- lockpick record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -252,7 +254,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- probe record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- probe record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -264,7 +266,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- repair record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- repair record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -276,7 +278,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- light record %s, %s\n-- baseId is %s", record.data.mId.c_str(), record.data.mName.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- light record %s, %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(), record.data.mName.c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -300,7 +302,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- script record %s\n-- baseId is %s", record.data.mId.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- script record %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -312,7 +314,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- bodypart record %s\n-- baseId is %s", record.data.mId.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- bodypart record %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -324,7 +326,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- sound record %s\n-- baseId is %s", record.data.mId.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- sound record %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -336,7 +338,7 @@ void Worldstate::addRecords()
         {
             bool hasBaseId = !record.baseId.empty();
 
-            LOG_APPEND(TimedLog::LOG_INFO, "- gameSetting record %s\n-- baseId is %s", record.data.mId.c_str(),
+            LOG_APPEND(TimedLog::LOG_INFO, "- gameSetting record %s\n-- baseId is %s", record.data.mId.toDebugString().c_str(),
                 hasBaseId ? record.baseId.c_str() : "empty");
 
             RecordHelper::overrideRecord(record);
@@ -433,7 +435,7 @@ void Worldstate::setKills()
             debugMessage += killChange.refId + ": " + std::to_string(killChange.number);
         }
 
-        MWBase::Environment::get().getMechanicsManager()->setDeaths(killChange.refId, killChange.number);
+        MWBase::Environment::get().getMechanicsManager()->setDeaths(ESM::RefId::stringRefId(killChange.refId), killChange.number);
     }
 
     LOG_APPEND(TimedLog::LOG_INFO, "- %s", debugMessage.c_str());
@@ -443,10 +445,10 @@ void Worldstate::setMapExplored()
 {
     for (const auto &mapTile : mapTiles)
     {
-        const MWWorld::CellStore *cellStore = MWBase::Environment::get().getWorld()->getExterior(mapTile.x, mapTile.y);
+        const MWWorld::CellStore *cellStore = &MWBase::Environment::get().getWorldModel()->getExterior(ESM::ExteriorCellLocation(mapTile.x, mapTile.y, ESM::Cell::sDefaultWorldspaceId));
 
-        if (!cellStore->getCell()->mName.empty())
-            MWBase::Environment::get().getWindowManager()->addVisitedLocation(cellStore->getCell()->mName, mapTile.x, mapTile.y);
+        if (!cellStore->getCell()->getNameId().empty())
+            MWBase::Environment::get().getWindowManager()->addVisitedLocation(std::string(cellStore->getCell()->getNameId()), mapTile.x, mapTile.y);
 
         MWBase::Environment::get().getWindowManager()->setGlobalMapImage(mapTile.x, mapTile.y, mapTile.imageData);
 
@@ -469,7 +471,7 @@ void Worldstate::setWeather()
         weather.region.c_str(), weather.currentWeather, weather.nextWeather,
         weather.queuedWeather, weather.transitionFactor, forceWeather ? "true" : "false");
 
-    world->setRegionWeather(weather.region.c_str(), weather.currentWeather, weather.nextWeather,
+    world->setRegionWeather(ESM::RefId::stringRefId(weather.region), weather.currentWeather, weather.nextWeather,
         weather.queuedWeather, weather.transitionFactor, forceWeather);
 }
 
@@ -478,7 +480,7 @@ void Worldstate::resetCells(std::vector<ESM::Cell>* cells)
     MWBase::World* world = MWBase::Environment::get().getWorld();
 
     bool haveUnloadedActiveCells = false;
-    ESM::Cell playerCell = *world->getPlayerPtr().getCell()->getCell();
+    ESM::Cell playerCell = world->getPlayerPtr().getCell()->getCell()->getEsm3();
     ESM::Position playerPos = world->getPlayerPtr().getRefData().getPosition();
     std::vector<RakNet::RakNetGUID> playersInCell;
 
@@ -496,7 +498,7 @@ void Worldstate::resetCells(std::vector<ESM::Cell>* cells)
                     for (RakNet::RakNetGUID otherGuid : playersInCell)
                     {
                         DedicatedPlayer* dedicatedPlayer = mwmp::PlayerList::getPlayer(otherGuid);
-                        dedicatedPlayer->cell = *world->getInterior(RecordHelper::getPlaceholderInteriorCellName())->getCell();
+                        dedicatedPlayer->cell = MWBase::Environment::get().getWorldModel()->getInterior(RecordHelper::getPlaceholderInteriorCellName()).getCell()->getEsm3();
                         dedicatedPlayer->setCell();
                     }
                 }
@@ -525,7 +527,7 @@ void Worldstate::resetCells(std::vector<ESM::Cell>* cells)
     if (haveUnloadedActiveCells)
     {
         if (playerCell.isExterior())
-            world->changeToExteriorCell(playerPos, true, true);
+            world->changeToCell(ESM::RefId::esm3ExteriorCell(playerCell.mData.mX, playerCell.mData.mY), playerPos, true, true);
         else
             world->changeToInteriorCell(playerCell.mName, playerPos, true, true);
     }

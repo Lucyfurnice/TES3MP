@@ -4,6 +4,9 @@
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include "../mwworld/cellstore.hpp"
 #include <RakNetTypes.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 
 #include "LocalActor.hpp"
 

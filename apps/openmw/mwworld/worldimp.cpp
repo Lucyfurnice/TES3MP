@@ -19,6 +19,7 @@
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadench.hpp>
+#include <components/esm3/loadglob.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadlevlist.hpp>
 #include <components/esm3/loadmgef.hpp>
@@ -105,6 +106,12 @@
 
 #include "contentloader.hpp"
 #include "esmloader.hpp"
+
+#include "../mwmp/Main.hpp"
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/LocalActor.hpp"
+#include "../mwmp/DedicatedActor.hpp"
+#include "../mwmp/RecordHelper.hpp"
 
 namespace MWWorld
 {
@@ -3781,5 +3788,158 @@ namespace MWWorld
     {
         if (MWPhysics::Actor* const actor = mPhysics->getActor(ptr))
             actor->setActive(value);
+    }
+
+    bool World::hasGlobal(std::string_view name)
+    {
+        return mGlobalVariables.getType(GlobalVariableName(name)) != ' ';
+    }
+
+    void World::createGlobal(std::string_view name, ESM::VarType varType)
+    {
+        ESM::Global global;
+        global.mId = ESM::RefId::stringRefId(name);
+        global.mValue.setType(varType);
+        mGlobalVariables.addRecord(global);
+    }
+
+    Ptr World::searchPtrViaUniqueIndex(int refNum, int mpNum)
+    {
+        for (CellStore* cellStore : mWorldScene->getActiveCells())
+        {
+            Ptr ptrFound = cellStore->searchExact(refNum, mpNum);
+            if (!ptrFound.isEmpty())
+                return ptrFound;
+        }
+        return Ptr();
+    }
+
+    void World::updatePtrsWithRefId(const ESM::RefId& refId)
+    {
+        for (CellStore* cellStore : mWorldScene->getActiveCells())
+        {
+            std::vector<MWWorld::Ptr> matchingPtrs;
+            cellStore->forEach([&](const Ptr& ptr) {
+                if (ptr.getCellRef().getRefId() == refId)
+                    matchingPtrs.push_back(ptr);
+                return true;
+            });
+
+            for (MWWorld::Ptr& ptr : matchingPtrs)
+            {
+                const ESM::Position position = ptr.getRefData().getPosition();
+                const ESM::RefNum refNum = ptr.getCellRef().getRefNum();
+                const unsigned int mpNum = ptr.getCellRef().getMpNum();
+
+                deleteObject(ptr);
+                ptr.getCellRef().unsetRefNum();
+                ptr.getCellRef().setMpNum(0);
+
+                MWWorld::ManualRef reference(getStore(), refId, 1);
+                MWWorld::Ptr newPtr = placeObject(reference.getPtr(), cellStore, position);
+                newPtr.getCellRef().setRefNum(refNum);
+                newPtr.getCellRef().setMpNum(mpNum);
+
+                if (newPtr.getClass().isActor())
+                {
+                    if (mwmp::Main::get().getCellController()->isLocalActor(refNum.mIndex, mpNum))
+                        mwmp::Main::get().getCellController()->getLocalActor(refNum.mIndex, mpNum)->setPtr(newPtr);
+                    else if (mwmp::Main::get().getCellController()->isDedicatedActor(refNum.mIndex, mpNum))
+                        mwmp::Main::get().getCellController()->getDedicatedActor(refNum.mIndex, mpNum)->setPtr(newPtr);
+                }
+            }
+        }
+    }
+
+    void World::setRegionWeather(const ESM::RefId& region, const unsigned int currentWeather,
+        const unsigned int nextWeather, const unsigned int queuedWeather, const float transitionFactor, bool force)
+    {
+        mWeatherManager->setRegionWeather(region, currentWeather, nextWeather, queuedWeather, transitionFactor, force);
+    }
+
+    bool World::getWeatherCreationState()
+    {
+        return mWeatherManager->getWeatherCreationState();
+    }
+
+    void World::setWeatherCreationState(bool state)
+    {
+        mWeatherManager->setWeatherCreationState(state);
+    }
+
+    void World::sendWeather()
+    {
+        mWeatherManager->sendWeather();
+    }
+
+    void World::setInertialForce(const Ptr& ptr, const osg::Vec3f& force)
+    {
+        if (MWPhysics::Actor* actor = mPhysics->getActor(ptr))
+        {
+            actor->setOnGround(false);
+            actor->setInertialForce(force);
+        }
+    }
+
+    void World::setOnGround(const Ptr& ptr, bool onGround)
+    {
+        if (MWPhysics::Actor* actor = mPhysics->getActor(ptr))
+            actor->setOnGround(onGround);
+    }
+
+    void World::setPhysicsFramerate(float physFramerate)
+    {
+        if (physFramerate > 0.f)
+            mPhysics->mPhysicsDt = 1.f / physFramerate;
+    }
+
+    void World::saveDoorState(const Ptr& door, MWWorld::DoorState state)
+    {
+        mDoorStates[door] = state;
+        if (state == MWWorld::DoorState::Idle)
+            mDoorStates.erase(door);
+    }
+
+    bool World::isCellActive(const ESM::Cell& cell)
+    {
+        CellStore* cellStore = cell.isExterior()
+            ? &mWorldModel.getExterior(ESM::ExteriorCellLocation(cell.getGridX(), cell.getGridY(), ESM::Cell::sDefaultWorldspaceId), false)
+            : mWorldModel.findInterior(cell.mName, false);
+        return cellStore && mWorldScene->isCellActive(*cellStore);
+    }
+
+    void World::unloadCell(const ESM::Cell& cell)
+    {
+        CellStore* cellStore = cell.isExterior()
+            ? &mWorldModel.getExterior(ESM::ExteriorCellLocation(cell.getGridX(), cell.getGridY(), ESM::Cell::sDefaultWorldspaceId), false)
+            : mWorldModel.findInterior(cell.mName, false);
+        if (cellStore && mWorldScene->isCellActive(*cellStore))
+            mWorldScene->unloadCell(cellStore);
+    }
+
+    void World::unloadActiveCells()
+    {
+        std::vector<CellStore*> cellsToUnload;
+        for (CellStore* cellStore : mWorldScene->getActiveCells())
+        {
+            if (cellStore->getCell()->isExterior()
+                || !Misc::StringUtils::ciEqual(
+                    cellStore->getCell()->getNameId(), RecordHelper::getPlaceholderInteriorCellName()))
+            {
+                cellsToUnload.push_back(cellStore);
+            }
+        }
+        for (CellStore* cellStore : cellsToUnload)
+            mWorldScene->unloadCell(cellStore);
+    }
+
+    void World::clearCellStore(const ESM::Cell& cell)
+    {
+        CellStore* cellStore = cell.isExterior()
+            ? &mWorldModel.getExterior(ESM::ExteriorCellLocation(cell.getGridX(), cell.getGridY(), ESM::Cell::sDefaultWorldspaceId), false)
+            : mWorldModel.findInterior(cell.mName, false);
+        if (cellStore != nullptr)
+            cellStore->clearMovesToCells();
+        mWorldModel.clearCell(cell);
     }
 }

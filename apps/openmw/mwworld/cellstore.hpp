@@ -128,6 +128,8 @@ namespace MWWorld
         /// @return updated MWWorld::Ptr with the new CellStore pointer set.
         MWWorld::Ptr moveTo(const MWWorld::Ptr& object, MWWorld::CellStore* cellToMoveTo);
 
+        void clearMovesToCells();
+
         void rest(double hours);
         void recharge(float duration);
 
@@ -336,6 +338,8 @@ namespace MWWorld
         CellStore* getOriginCell(const Ptr& object) const;
 
         Ptr getPtr(ESM::RefId id);
+
+        Ptr searchExact(unsigned int refNum, unsigned int mpNum, std::string_view refId = {}, bool actorsOnly = false);
 
     private:
         friend struct CellStoreImp;

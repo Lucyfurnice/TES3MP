@@ -1,6 +1,7 @@
 #ifndef OPENMW_BASEOBJECTPROCESSOR_HPP
 #define OPENMW_BASEOBJECTPROCESSOR_HPP
 
+#include <components/openmw-mp/Utils.hpp>
 #include "../ObjectProcessor.hpp"
 #include "apps/openmw/mwmp/Main.hpp"
 #include "apps/openmw/mwmp/CellController.hpp"
@@ -13,7 +14,7 @@ namespace mwmp
     public:
         virtual void Do(ObjectPacket &packet, ObjectList &objectList)
         {
-            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s about %s", strPacketID.c_str(), objectList.cell.getShortDescription().c_str());
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(objectList.cell).c_str());
         }
     protected:
         MWWorld::CellStore *ptrCellStore;

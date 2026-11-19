@@ -284,6 +284,11 @@ namespace MWMechanics
         return mFriendlyHits;
     }
 
+    void CreatureStats::setFriendlyHits(int hits)
+    {
+        mFriendlyHits = hits;
+    }
+
     void CreatureStats::friendlyHit()
     {
         ++mFriendlyHits;

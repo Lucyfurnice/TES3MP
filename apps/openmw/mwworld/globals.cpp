@@ -106,4 +106,9 @@ namespace MWWorld
 
         return false;
     }
+
+    void Globals::addRecord(const ESM::Global& global)
+    {
+        mVariables.emplace(global.mId, global);
+    }
 }

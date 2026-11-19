@@ -6,6 +6,9 @@
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/timestamp.hpp"
 #include <RakNetTypes.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 
 namespace mwmp
 {

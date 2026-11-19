@@ -120,6 +120,9 @@ namespace MWBase
 
         /// Removes the last added topic response for the given actor from the journal
         virtual void clearInfoActor(const MWWorld::Ptr& actor) const = 0;
+
+        virtual void updateActorKnownTopics() = 0;
+        virtual std::string getVoiceCaption(const std::string& sound) const = 0;
     };
 }
 

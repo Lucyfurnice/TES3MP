@@ -310,6 +310,8 @@ namespace MWWorld
         void changeWeather(const ESM::RefId& regionID, const ESM::RefId& weatherID);
         void modRegion(const ESM::RefId& regionID, const std::vector<uint8_t>& chances);
         void playerTeleported(const ESM::RefId& playerRegion, bool isExterior);
+        void setRegionWeather(const ESM::RefId& region, const int currentWeather, const int nextWeather,
+            const int queuedWeather, const float transitionFactor, bool force);
 
         /**
          * Per-frame update
@@ -363,6 +365,10 @@ namespace MWWorld
 
         void clear();
 
+        bool getWeatherCreationState();
+        void setWeatherCreationState(bool state);
+        void sendWeather();
+
     private:
         MWWorld::ESMStore& mStore;
         MWRender::RenderingManager& mRendering;
@@ -410,6 +416,7 @@ namespace MWWorld
         ESM::RefId mPlayingAmbientSoundID;
         MWBase::Sound* mRainSound{ nullptr };
         ESM::RefId mPlayingRainSoundID;
+        bool mWeatherCreationState = false;
 
         void addWeather(
             const std::string& name, float dlFactor, float dlOffset, const std::string& particleEffect = "");

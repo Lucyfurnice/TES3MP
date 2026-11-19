@@ -176,6 +176,8 @@ namespace MWWorld
         void clear();
         ///< Change into a void
 
+        void unloadCell(CellStore* cell);
+
         void markCellAsUnchanged();
 
         void update(float duration);

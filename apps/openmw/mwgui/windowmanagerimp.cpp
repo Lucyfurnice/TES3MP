@@ -1218,6 +1218,12 @@ namespace MWGui
         MWBase::Environment::get().getInputManager()->setDragDrop(dragDrop);
     }
 
+    void WindowManager::finishDragDrop()
+    {
+        if (mDragAndDrop->mIsOnDragAndDrop)
+            mDragAndDrop->finish();
+    }
+
     void WindowManager::setCursorVisible(bool visible)
     {
         mCursorVisible = visible;
@@ -1642,6 +1648,11 @@ namespace MWGui
         mConsole->executeFile(path);
     }
 
+    void WindowManager::executeCommandInConsole(const std::string& command)
+    {
+        mConsole->execute(command);
+    }
+
     std::vector<MWGui::WindowBase*> WindowManager::getGuiModeWindows(GuiMode mode)
     {
         return mGuiModeStates[mode].mWindows;
@@ -1665,6 +1676,14 @@ namespace MWGui
     MWGui::TradeWindow* WindowManager::getTradeWindow()
     {
         return mTradeWindow;
+    }
+    MWGui::ContainerWindow* WindowManager::getContainerWindow()
+    {
+        return mContainerWindow;
+    }
+    MWGui::DialogueWindow* WindowManager::getDialogueWindow()
+    {
+        return mDialogueWindow;
     }
     MWGui::PostProcessorHud* WindowManager::getPostProcessorHud()
     {
@@ -1800,6 +1819,32 @@ namespace MWGui
     void WindowManager::activateQuickKey(int index)
     {
         mQuickKeysMenu->activateQuickKey(index);
+    }
+
+    void WindowManager::setQuickKey(int slot, int quickKeyType, MWWorld::Ptr item, const ESM::RefId& spellId)
+    {
+        if (slot > 0)
+        {
+            mQuickKeysMenu->setSelectedIndex(slot - 1);
+
+            switch (static_cast<ESM::QuickKeys::Type>(quickKeyType))
+            {
+                case ESM::QuickKeys::Type::Unassigned:
+                    mQuickKeysMenu->unassignIndex(slot - 1);
+                    break;
+                case ESM::QuickKeys::Type::Item:
+                    mQuickKeysMenu->onAssignItem(item);
+                    break;
+                case ESM::QuickKeys::Type::MagicItem:
+                    mQuickKeysMenu->onAssignMagicItem(item);
+                    break;
+                case ESM::QuickKeys::Type::Magic:
+                    mQuickKeysMenu->onAssignMagic(spellId);
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 
     bool WindowManager::setHudVisibility(bool show)
@@ -2415,6 +2460,21 @@ namespace MWGui
     void WindowManager::setConsoleSelectedObject(const MWWorld::Ptr& object)
     {
         mConsole->setSelectedObject(object);
+    }
+
+    void WindowManager::setConsolePtr(const MWWorld::Ptr& object)
+    {
+        mConsole->setPtr(object);
+    }
+
+    void WindowManager::clearConsolePtr()
+    {
+        mConsole->resetReference();
+    }
+
+    void WindowManager::setGlobalMapImage(int cellX, int cellY, const std::vector<char>& imageData)
+    {
+        mMap->setGlobalMapImage(cellX, cellY, imageData);
     }
 
     MWWorld::Ptr WindowManager::getConsoleSelectedObject() const

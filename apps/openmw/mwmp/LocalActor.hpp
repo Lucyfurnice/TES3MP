@@ -3,6 +3,7 @@
 
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include "../mwmechanics/creaturestats.hpp"
+#include "../mwmechanics/drawstate.hpp"
 #include "../mwmechanics/activespells.hpp"
 #include "../mwworld/manualref.hpp"
 #include "../mwworld/timestamp.hpp"
@@ -51,7 +52,7 @@ namespace mwmp
         bool wasJumping;
         bool wasFlying;
 
-        MWMechanics::DrawState_ lastDrawState;
+        MWMechanics::DrawState lastDrawState;
 
         MWMechanics::DynamicStat<float> oldHealth;
         MWMechanics::DynamicStat<float> oldMagicka;

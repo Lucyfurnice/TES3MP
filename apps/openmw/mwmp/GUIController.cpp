@@ -36,7 +36,7 @@
 #include "PlayerList.hpp"
 
 
-mwmp::GUIController::GUIController(): mInputBox(0), mListBox(0)
+mwmp::GUIController::GUIController()
 {
     mChat = nullptr;
     keySay = SDL_SCANCODE_Y;
@@ -98,11 +98,10 @@ void mwmp::GUIController::showDialogList(const mwmp::BasePlayer::GUIMessageBox &
 {
     MWBase::WindowManager *windowManager = MWBase::Environment::get().getWindowManager();
     
-    if (mListBox != NULL)
+    if (mListBox)
     {
-        windowManager->removeDialog(mListBox);
-        windowManager->removeCurrentModal(mListBox);
-        mListBox = NULL;
+        windowManager->removeCurrentModal(mListBox.get());
+        windowManager->removeDialog(std::move(mListBox));
     }
 
     std::vector<std::string> list;
@@ -122,7 +121,7 @@ void mwmp::GUIController::showDialogList(const mwmp::BasePlayer::GUIMessageBox &
 
     list.push_back(buf);
 
-    mListBox = new GUIDialogList(guiMessageBox.label, list);
+    mListBox = std::make_unique<GUIDialogList>(guiMessageBox.label, list);
     windowManager->pushGuiMode((MWGui::GuiMode)GM_TES3MP_ListBox);
 }
 
@@ -146,17 +145,16 @@ void mwmp::GUIController::showCustomMessageBox(const BasePlayer::GUIMessageBox &
 {
     MWBase::WindowManager* windowManager = MWBase::Environment::get().getWindowManager();
     std::vector<std::string> buttons = splitString(guiMessageBox.buttons);
-    windowManager->interactiveMessageBox(guiMessageBox.label, buttons, false, true);
+    windowManager->interactiveMessageBox(guiMessageBox.label, buttons, false);
 }
 
 void mwmp::GUIController::showInputBox(const BasePlayer::GUIMessageBox &guiMessageBox)
 {
     MWBase::WindowManager *windowManager = MWBase::Environment::get().getWindowManager();
 
-    windowManager->removeDialog(mInputBox);
+    windowManager->removeDialog(std::move(mInputBox));
     windowManager->pushGuiMode((MWGui::GuiMode)GM_TES3MP_InputBox);
-    mInputBox = 0;
-    mInputBox = new TextInputDialog();
+    mInputBox = std::make_unique<TextInputDialog>();
 
     mInputBox->setEditPassword(guiMessageBox.type == BasePlayer::GUIMessageBox::PasswordDialog);
 
@@ -188,8 +186,7 @@ void mwmp::GUIController::onInputBoxDone(MWGui::WindowBase *parWindow)
     playerPacket->Send();
 
     MWBase::WindowManager *windowManager = MWBase::Environment::get().getWindowManager();
-    windowManager->removeDialog(mInputBox);
-    mInputBox = 0;
+    windowManager->removeDialog(std::move(mInputBox));
     windowManager->popGuiMode();
 }
 
@@ -305,22 +302,13 @@ ESM::CustomMarker mwmp::GUIController::createMarker(const RakNet::RakNetGUID &gu
 
     const ESM::Cell *playerCell = &player->cell;
 
-    mEditingMarker.mCell = player->cell.mCellId;
-
     mEditingMarker.mWorldX = player->position.pos[0];
     mEditingMarker.mWorldY = player->position.pos[1];
 
-    mEditingMarker.mCell.mPaged = playerCell->isExterior();
-    if (!playerCell->isExterior())
-        mEditingMarker.mCell.mWorldspace = playerCell->mName;
+    if (playerCell->isExterior())
+        mEditingMarker.mCell = ESM::RefId::esm3ExteriorCell(playerCell->getGridX(), playerCell->getGridY());
     else
-    {
-        mEditingMarker.mCell.mWorldspace = ESM::CellId::sDefaultWorldspace;
-
-        // Don't remove these, or the markers will stop showing up in exteriors
-        mEditingMarker.mCell.mIndex.mX = playerCell->getGridX();
-        mEditingMarker.mCell.mIndex.mY = playerCell->getGridY();
-    }
+        mEditingMarker.mCell = ESM::RefId::stringRefId(playerCell->mName);
     return mEditingMarker;
 }
 
@@ -332,52 +320,51 @@ void mwmp::GUIController::updatePlayersMarkers(MWGui::LocalMapBase *localMapBase
         MyGUI::Gui::getInstance().destroyWidget(*markerWidgetIterator);
     localMapBase->mPlayerMarkerWidgets.clear();
 
-    for (int dX = -localMapBase->mCellDistance; dX <= localMapBase->mCellDistance; ++dX)
-    {
-        for (int dY =-localMapBase->mCellDistance; dY <= localMapBase->mCellDistance; ++dY)
+    if (!localMapBase->mActiveCell)
+        return;
+
+    auto addMarkersForCell = [&](const ESM::RefId& cellId) {
+        PlayerMarkerCollection::RangeType markers = mPlayerMarkers.getMarkers(cellId);
+        for (PlayerMarkerCollection::ContainerType::const_iterator markerIterator = markers.first;
+            markerIterator != markers.second; ++markerIterator)
         {
-            ESM::CellId cellId;
-            cellId.mPaged = !localMapBase->mInterior;
-            cellId.mWorldspace = (localMapBase->mInterior ? localMapBase->mPrefix : ESM::CellId::sDefaultWorldspace);
-            cellId.mIndex.mX = localMapBase->mCurX+dX;
-            cellId.mIndex.mY = localMapBase->mCurY+dY;
+            const ESM::CustomMarker &marker = markerIterator->second;
 
-            PlayerMarkerCollection::RangeType markers = mPlayerMarkers.getMarkers(cellId);
-            for (PlayerMarkerCollection::ContainerType::const_iterator markerIterator = markers.first;
-                markerIterator != markers.second; ++markerIterator)
-            {
-                const ESM::CustomMarker &marker = markerIterator->second;
+            MWGui::LocalMapBase::MarkerUserData markerPos (localMapBase->mLocalMapRender);
+            MyGUI::IntPoint widgetPos = localMapBase->getMarkerPosition(marker.mWorldX, marker.mWorldY, markerPos);
 
-                MWGui::LocalMapBase::MarkerUserData markerPos (localMapBase->mLocalMapRender);
-                MyGUI::IntPoint widgetPos = localMapBase->getMarkerPosition(marker.mWorldX, marker.mWorldY, markerPos);
+            MyGUI::IntCoord widgetCoord(widgetPos.left - 8, widgetPos.top - 8, 16, 16);
+            MarkerWidget* markerWidget = localMapBase->mLocalMap->createWidget<MarkerWidget>("CustomMarkerButton",
+                                                                               widgetCoord, MyGUI::Align::Default);
 
-                MyGUI::IntCoord widgetCoord(widgetPos.left - 8, widgetPos.top - 8, 16, 16);
-                MarkerWidget* markerWidget = localMapBase->mLocalMap->createWidget<MarkerWidget>("CustomMarkerButton",
-                                                                                   widgetCoord, MyGUI::Align::Default);
-
-                markerWidget->setDepth(0); // Local_MarkerAboveFogLayer
-                markerWidget->setUserString("ToolTipType", "Layout");
-                markerWidget->setUserString("ToolTipLayout", "TextToolTipOneLine");
-                markerWidget->setUserString("Caption_TextOneLine", MyGUI::TextIterator::toTagsString(marker.mNote));
-                markerWidget->setNormalColour(MyGUI::Colour(0.6f, 0.6f, 0.6f));
-                markerWidget->setHoverColour(MyGUI::Colour(1.0f, 1.0f, 1.0f));
-                markerWidget->setUserData(marker);
-                markerWidget->setNeedMouseFocus(true);
-                //localMapBase->customMarkerCreated(markerWidget);
-                localMapBase->mPlayerMarkerWidgets.push_back(markerWidget);
-            }
+            markerWidget->setDepth(0); // Local_MarkerAboveFogLayer
+            markerWidget->setUserString("ToolTipType", "Layout");
+            markerWidget->setUserString("ToolTipLayout", "TextToolTipOneLine");
+            markerWidget->setUserString("Caption_TextOneLine", MyGUI::TextIterator::toTagsString(marker.mNote));
+            markerWidget->setNormalColour(MyGUI::Colour(0.6f, 0.6f, 0.6f));
+            markerWidget->setHoverColour(MyGUI::Colour(1.0f, 1.0f, 1.0f));
+            markerWidget->setUserData(marker);
+            markerWidget->setNeedMouseFocus(true);
+            localMapBase->mPlayerMarkerWidgets.push_back(markerWidget);
         }
+    };
+
+    if (localMapBase->mActiveCell->isExterior())
+    {
+        for (int x = localMapBase->mGrid.left; x <= localMapBase->mGrid.right; ++x)
+            for (int y = localMapBase->mGrid.top; y <= localMapBase->mGrid.bottom; ++y)
+                addMarkersForCell(ESM::RefId::esm3ExteriorCell(x, y));
+    }
+    else
+    {
+        addMarkersForCell(localMapBase->mActiveCell->getId());
     }
     localMapBase->redraw();
 }
 
 void mwmp::GUIController::setGlobalMapMarkerTooltip(MWGui::MapWindow *mapWindow, MyGUI::Widget *markerWidget, int x, int y)
 {
-    ESM::CellId cellId;
-    cellId.mIndex.mX = x;
-    cellId.mIndex.mY = y;
-    cellId.mWorldspace = ESM::CellId::sDefaultWorldspace;
-    cellId.mPaged = true;
+    ESM::RefId cellId = ESM::RefId::esm3ExteriorCell(x, y);
     PlayerMarkerCollection::RangeType markers = mPlayerMarkers.getMarkers(cellId);
     std::vector<std::string> destNotes;
     for (PlayerMarkerCollection::ContainerType::const_iterator it = markers.first; it != markers.second; ++it)
@@ -398,10 +385,10 @@ void mwmp::GUIController::setGlobalMapMarkerTooltip(MWGui::MapWindow *mapWindow,
 
 void mwmp::GUIController::updateGlobalMapMarkerTooltips(MWGui::MapWindow *mapWindow)
 {
-    for (const auto &widget : mapWindow->mGlobalMapMarkers)
+    for (const auto& [markerType, ignore] : mapWindow->mGlobalMapMarkers)
     {
-        const int x = widget.first.first;
-        const int y = widget.first.second;
-        setGlobalMapMarkerTooltip(mapWindow, widget.second, x, y);
+        const int x = static_cast<int>(markerType.position.x());
+        const int y = static_cast<int>(markerType.position.y());
+        setGlobalMapMarkerTooltip(mapWindow, markerType.widget, x, y);
     }
 }

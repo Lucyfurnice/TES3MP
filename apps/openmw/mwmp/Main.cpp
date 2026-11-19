@@ -4,9 +4,10 @@
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Version.hpp>
 
-#include <components/esm/esmwriter.hpp>
+#include <components/esm3/esmwriter.hpp>
 #include <components/files/configurationmanager.hpp>
-#include <components/files/escape.hpp>
+#include <components/files/conversion.hpp>
+#include <components/settings/parser.hpp>
 
 #include "../mwbase/environment.hpp"
 
@@ -62,24 +63,25 @@ std::string Main::getResDir()
 std::string loadSettings(Settings::Manager& settings)
 {
     Files::ConfigurationManager mCfgMgr;
+    Settings::SettingsFileParser parser;
     // Create the settings manager and load default settings file
-    const std::string localdefault = (mCfgMgr.getLocalPath() / "tes3mp-client-default.cfg").string();
-    const std::string globaldefault = (mCfgMgr.getGlobalPath() / "tes3mp-client-default.cfg").string();
+    const std::filesystem::path localdefault = mCfgMgr.getLocalPath() / "tes3mp-client-default.cfg";
+    const std::filesystem::path globaldefault = mCfgMgr.getGlobalPath() / "tes3mp-client-default.cfg";
 
     // prefer local
-    if (boost::filesystem::exists(localdefault))
-        settings.loadDefault(localdefault, false);
-    else if (boost::filesystem::exists(globaldefault))
-        settings.loadDefault(globaldefault, false);
+    if (std::filesystem::exists(localdefault))
+        parser.loadSettingsFile(localdefault, Settings::Manager::mDefaultSettings, false, false);
+    else if (std::filesystem::exists(globaldefault))
+        parser.loadSettingsFile(globaldefault, Settings::Manager::mDefaultSettings, false, false);
     else
         throw std::runtime_error ("No default settings file found! Make sure the file \"tes3mp-client-default.cfg\" was properly installed.");
 
     // load user settings if they exist
-    const std::string settingspath = (mCfgMgr.getUserConfigPath() / "tes3mp-client.cfg").string();
-    if (boost::filesystem::exists(settingspath))
-        settings.loadUser(settingspath);
+    const std::filesystem::path settingspath = mCfgMgr.getUserConfigPath() / "tes3mp-client.cfg";
+    if (std::filesystem::exists(settingspath))
+        parser.loadSettingsFile(settingspath, Settings::Manager::mUserSettings, false, false);
 
-    return settingspath;
+    return Files::pathToUnicodeString(settingspath);
 }
 
 Main::Main()
@@ -120,7 +122,7 @@ void Main::configure(const boost::program_options::variables_map &variables)
 {
     Main::address = variables["connect"].as<std::string>();
     Main::serverPassword = variables["password"].as<std::string>();
-    resourceDir = variables["resources"].as<Files::EscapePath>().mPath.string();
+    resourceDir = Files::pathToUnicodeString(variables["resources"].as<Files::MaybeQuotedPath>());
 }
 
 bool Main::init(std::vector<std::string> &content, Files::Collections &collections)

@@ -4,6 +4,9 @@
 #include <string>
 
 #include <RakNetTypes.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 
 namespace mwmp
 {

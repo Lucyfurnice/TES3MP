@@ -67,7 +67,6 @@ namespace MWDialogue
         std::vector<ESM::RefId> parseTopicIdsFromText(const std::string& text) const;
         void addTopicsFromText(const std::string& text);
 
-        void updateActorKnownTopics();
         void updateGlobals();
 
         std::optional<Interpreter::Program> compile(const std::string& cmd, const MWWorld::Ptr& actor);
@@ -135,6 +134,9 @@ namespace MWDialogue
 
         /// Removes the last added topic response for the given actor from the journal
         void clearInfoActor(const MWWorld::Ptr& actor) const override;
+
+        void updateActorKnownTopics() override;
+        std::string getVoiceCaption(const std::string& sound) const override;
     };
 }
 

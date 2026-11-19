@@ -32,6 +32,8 @@
 #include "../mwrender/localmap.hpp"
 
 #include "confirmationdialog.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/GUIController.hpp"
 
 #include <numeric>
 
@@ -1163,6 +1165,17 @@ namespace MWGui
     {
         mGlobalMapRender->cleanupCameras();
         mGlobalMapRender->exploreCell(x, y, mLocalMapRender->getMapTexture(x, y));
+    }
+
+    void MapWindow::setGlobalMapImage(int cellX, int cellY, const std::vector<char>& imageData)
+    {
+        mGlobalMapRender->setImage(cellX, cellY, imageData);
+    }
+
+    void MapWindow::updatePlayerMarkers()
+    {
+        mwmp::Main::get().getGUIController()->updatePlayersMarkers(this);
+        mwmp::Main::get().getGUIController()->updateGlobalMapMarkerTooltips(this);
     }
 
     void MapWindow::onFrame(float dt)

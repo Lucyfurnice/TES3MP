@@ -1,6 +1,7 @@
 #ifndef OPENMW_PROCESSORACTORAI_HPP
 #define OPENMW_PROCESSORACTORAI_HPP
 
+#include <components/openmw-mp/Utils.hpp>
 #include "../ActorProcessor.hpp"
 #include "apps/openmw/mwmp/Main.hpp"
 #include "apps/openmw/mwmp/CellController.hpp"
@@ -17,7 +18,7 @@ namespace mwmp
 
         virtual void Do(ActorPacket &packet, ActorList &actorList)
         {
-            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s about %s", strPacketID.c_str(), actorList.cell.getShortDescription().c_str());
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(actorList.cell).c_str());
 
             Main::get().getCellController()->readAi(actorList);
         }

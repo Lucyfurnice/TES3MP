@@ -556,6 +556,55 @@ namespace MWMechanics
         mQueue.emplace_back(ActiveSpellParams{ spell, actor, ignoreResistances });
     }
 
+    void ActiveSpells::addSpell(const ESM::RefId& id, bool stack, std::vector<ActiveEffect> effects,
+        const std::string& displayName, ESM::RefNum caster, MWWorld::TimeStamp timestamp)
+    {
+        ActiveSpellParams params(MWWorld::Ptr(), id, displayName, ESM::RefNum());
+        params.mCaster = caster;
+        params.mEffects = std::move(effects);
+        params.mTimeStamp = timestamp;
+        params.setFlag(ESM::ActiveSpells::Flag_Temporary);
+        if (stack)
+            params.setFlag(ESM::ActiveSpells::Flag_Stackable);
+        mQueue.emplace_back(std::move(params));
+    }
+
+    bool ActiveSpells::removeSpellByTimestamp(const MWWorld::Ptr& ptr, const ESM::RefId& id, MWWorld::TimeStamp timestamp)
+    {
+        bool found = false;
+        for (const auto& spell : mSpells)
+        {
+            if (spell.mSourceSpellId == id && spell.mTimeStamp == timestamp)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (found)
+        {
+            purge([=](const ActiveSpellParams& params) {
+                return params.mSourceSpellId == id && params.mTimeStamp == timestamp;
+            }, ptr);
+        }
+        return found;
+    }
+
+    float ActiveSpells::getEffectDuration(const ESM::RefId& effectId, const ESM::RefId& sourceId) const
+    {
+        for (const auto& spell : mSpells)
+        {
+            if (spell.mSourceSpellId == sourceId)
+            {
+                for (const auto& effect : spell.mEffects)
+                {
+                    if (effect.mEffectId == effectId)
+                        return effect.mDuration;
+                }
+            }
+        }
+        return 0.f;
+    }
+
     void ActiveSpells::purge(ParamsPredicate predicate, const MWWorld::Ptr& ptr)
     {
         assert(&ptr.getClass().getCreatureStats(ptr).getActiveSpells() == this);

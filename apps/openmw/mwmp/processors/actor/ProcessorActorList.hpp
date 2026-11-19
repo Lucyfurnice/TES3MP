@@ -1,6 +1,7 @@
 #ifndef OPENMW_PROCESSORACTORLIST_HPP
 #define OPENMW_PROCESSORACTORLIST_HPP
 
+#include <components/openmw-mp/Utils.hpp>
 #include "../ActorProcessor.hpp"
 #include "apps/openmw/mwmp/Main.hpp"
 #include "apps/openmw/mwmp/CellController.hpp"
@@ -22,7 +23,7 @@ namespace mwmp
 
             if (!ptrCellStore) return;
 
-            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s about %s", strPacketID.c_str(), actorList.cell.getShortDescription().c_str());
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(actorList.cell).c_str());
             LOG_APPEND(TimedLog::LOG_VERBOSE, "- action: %i", actorList.action);
 
             // If we've received a request for information, comply with it

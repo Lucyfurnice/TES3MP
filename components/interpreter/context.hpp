@@ -11,6 +11,14 @@ namespace Interpreter
     class Context
     {
     public:
+        enum ContextType
+        {
+            CONSOLE,
+            DIALOGUE,
+            SCRIPT_LOCAL,
+            SCRIPT_GLOBAL
+        };
+
         virtual ~Context() {}
 
         virtual ESM::RefId getTarget() const = 0;

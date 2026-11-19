@@ -116,6 +116,61 @@ add_openmw_dir (mwbase
     inputmanager windowmanager statemanager luamanager
     )
 
+add_openmw_dir (mwmp
+    Main Networking LocalSystem LocalPlayer DedicatedPlayer PlayerList LocalActor DedicatedActor ActorList
+    ObjectList Worldstate Cell CellController GUIController MechanicsHelper RecordHelper ScriptController
+    )
+
+add_openmw_dir (mwmp/GUI
+    GUIChat GUILogin PlayerMarkerCollection GUIDialogList TextInputDialog
+    )
+
+add_openmw_dir (mwmp/processors
+    BaseClientPacketProcessor SystemProcessor PlayerProcessor ObjectProcessor ActorProcessor
+    WorldstateProcessor ProcessorInitializer
+    )
+
+add_openmw_dir (mwmp/processors/system
+    ProcessorSystemHandshake
+    )
+
+add_openmw_dir (mwmp/processors/actor
+    ProcessorActorAI ProcessorActorAnimFlags ProcessorActorAnimPlay ProcessorActorAttack
+    ProcessorActorAuthority ProcessorActorCast ProcessorActorCellChange ProcessorActorDeath ProcessorActorEquipment
+    ProcessorActorList ProcessorActorPosition ProcessorActorSpeech ProcessorActorSpellsActive ProcessorActorStatsDynamic
+    ProcessorActorTest
+    )
+
+add_openmw_dir (mwmp/processors/player
+    ProcessorChatMessage ProcessorGUIMessageBox ProcessorUserDisconnected
+    ProcessorUserMyID ProcessorGameSettings ProcessorPlayerAlly ProcessorPlayerAnimFlags ProcessorPlayerAnimPlay
+    ProcessorPlayerAttack ProcessorPlayerAttribute ProcessorPlayerBaseInfo ProcessorPlayerBehavior ProcessorPlayerBook
+    ProcessorPlayerBounty ProcessorPlayerCast ProcessorPlayerCellChange ProcessorPlayerCellState ProcessorPlayerCharClass
+    ProcessorPlayerCharGen ProcessorPlayerCooldowns ProcessorPlayerDeath ProcessorPlayerDisposition ProcessorPlayerEquipment
+    ProcessorPlayerFaction ProcessorPlayerInput ProcessorPlayerInventory ProcessorPlayerItemUse ProcessorPlayerJail
+    ProcessorPlayerJournal ProcessorPlayerLevel ProcessorPlayerMiscellaneous ProcessorPlayerMomentum ProcessorPlayerPosition
+    ProcessorPlayerQuickKeys ProcessorPlayerReputation ProcessorPlayerResurrect ProcessorPlayerShapeshift
+    ProcessorPlayerSkill ProcessorPlayerSpeech ProcessorPlayerSpellbook ProcessorPlayerSpellsActive
+    ProcessorPlayerStatsDynamic ProcessorPlayerTopic
+    )
+
+add_openmw_dir (mwmp/processors/object
+    BaseObjectProcessor
+    ProcessorConsoleCommand ProcessorContainer ProcessorDoorDestination ProcessorDoorState ProcessorMusicPlay
+    ProcessorVideoPlay
+    ProcessorObjectActivate ProcessorObjectAnimPlay ProcessorObjectAttach ProcessorObjectDelete
+    ProcessorObjectDialogueChoice ProcessorObjectHit ProcessorObjectLock ProcessorObjectMove ProcessorObjectPlace
+    ProcessorObjectRestock ProcessorObjectRotate ProcessorObjectScale ProcessorObjectSound ProcessorObjectSpawn
+    ProcessorObjectState ProcessorObjectTrap ProcessorClientScriptLocal ProcessorScriptMemberShort
+    ProcessorObjectMiscellaneous
+    )
+
+add_openmw_dir (mwmp/processors/worldstate
+    ProcessorCellReset ProcessorClientScriptGlobal ProcessorClientScriptSettings
+    ProcessorRecordDynamic ProcessorWorldCollisionOverride ProcessorWorldDestinationOverride ProcessorWorldKillCount
+    ProcessorWorldMap ProcessorWorldRegionAuthority ProcessorWorldTime ProcessorWorldWeather
+    )
+
 # Main executable
 
 add_library(openmw-lib STATIC
@@ -189,6 +244,9 @@ target_link_libraries(openmw-lib
     osg-ffmpeg-videoplayer
     oics
     components
+    Base64
+    PicoSHA2
+    ${RakNet_LIBRARY}
 )
 
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)

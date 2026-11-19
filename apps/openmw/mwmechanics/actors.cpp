@@ -2019,6 +2019,11 @@ namespace MWMechanics
         return 0;
     }
 
+    void Actors::setDeaths(const ESM::RefId& id, int number)
+    {
+        mDeathCount[id] = number;
+    }
+
     void Actors::forceStateUpdate(const MWWorld::Ptr& ptr) const
     {
         const auto iter = mIndex.find(ptr.mRef);
@@ -2357,6 +2362,13 @@ namespace MWMechanics
             return false;
 
         return it->second->getCharacterController().isAttackingOrSpell();
+    }
+
+    void Actors::setAttackingOrSpell(const MWWorld::Ptr& ptr, bool state) const
+    {
+        const auto it = mIndex.find(ptr.mRef);
+        if (it != mIndex.end())
+            it->second->getCharacterController().setAttackingOrSpell(state);
     }
 
     int Actors::getGreetingTimer(const MWWorld::Ptr& ptr) const

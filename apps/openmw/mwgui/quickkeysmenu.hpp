@@ -42,6 +42,9 @@ namespace MWGui
         void activateQuickKey(int index);
         void updateActivatedQuickKey();
 
+        void setSelectedIndex(int index);
+        void unassignIndex(int index);
+
         void write(ESM::ESMWriter& writer);
         void readRecord(ESM::ESMReader& reader, uint32_t type);
         void clear() override;

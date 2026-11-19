@@ -5,6 +5,9 @@
 #include <RakNetTypes.h>
 #include <BitStream.h>
 #include <PacketPriority.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 #include <components/esm/refid.hpp>
 
 

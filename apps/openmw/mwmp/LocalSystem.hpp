@@ -3,6 +3,9 @@
 
 #include <components/openmw-mp/Base/BaseSystem.hpp>
 #include <RakNetTypes.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 
 namespace mwmp
 {

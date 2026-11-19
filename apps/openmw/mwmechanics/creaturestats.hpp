@@ -196,6 +196,7 @@ namespace MWMechanics
 
         int getFriendlyHits() const;
         ///< Number of friendly hits received.
+        void setFriendlyHits(int hits);
 
         void friendlyHit();
         ///< Increase number of friendly hits by one.

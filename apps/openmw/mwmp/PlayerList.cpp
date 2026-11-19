@@ -70,9 +70,9 @@ DedicatedPlayer *PlayerList::getPlayer(const MWWorld::Ptr &ptr)
     {
         if (playerEntry.second == nullptr || playerEntry.second->getPtr().mRef == nullptr)
             continue;
-        
-        std::string refId = ptr.getCellRef().getRefId();
-        
+
+        const ESM::RefId refId = ptr.getCellRef().getRefId();
+
         if (playerEntry.second->getPtr().getCellRef().getRefId() == refId)
             return playerEntry.second;
     }
@@ -80,7 +80,7 @@ DedicatedPlayer *PlayerList::getPlayer(const MWWorld::Ptr &ptr)
     return nullptr;
 }
 
-DedicatedPlayer* PlayerList::getPlayer(int actorId)
+DedicatedPlayer* PlayerList::getPlayer(ESM::RefNum actorRefNum)
 {
     for (auto& playerEntry : playerList)
     {
@@ -88,9 +88,9 @@ DedicatedPlayer* PlayerList::getPlayer(int actorId)
             continue;
 
         MWWorld::Ptr playerPtr = playerEntry.second->getPtr();
-        int playerActorId = playerPtr.getClass().getCreatureStats(playerPtr).getActorId();
+        ESM::RefNum playerRefNum = playerPtr.getCellRef().getRefNum();
 
-        if (actorId == playerActorId)
+        if (actorRefNum == playerRefNum)
             return playerEntry.second;
     }
 
@@ -147,7 +147,7 @@ void PlayerList::enableMarkers(const ESM::Cell& cell)
 
     This resets the combat target for a DedicatedPlayer's followers in Actors::update()
 */
-void PlayerList::clearHitAttemptActorId(int actorId)
+void PlayerList::clearHitAttemptActorId(ESM::RefNum actorRefNum)
 {
     for (auto &playerEntry : playerList)
     {
@@ -156,7 +156,7 @@ void PlayerList::clearHitAttemptActorId(int actorId)
 
         MWMechanics::CreatureStats &playerCreatureStats = playerEntry.second->getPtr().getClass().getCreatureStats(playerEntry.second->getPtr());
 
-        if (playerCreatureStats.getHitAttemptActorId() == actorId)
-            playerCreatureStats.setHitAttemptActorId(-1);
+        if (playerCreatureStats.getHitAttemptActor() == actorRefNum)
+            playerCreatureStats.setHitAttemptActor({});
     }
 }

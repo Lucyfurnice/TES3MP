@@ -1360,4 +1360,34 @@ namespace MWWorld
 
         return Ptr();
     }
+
+    void CellStore::clearMovesToCells()
+    {
+        mMovedToAnotherCell.clear();
+        mMovedHere.clear();
+        requestMergedRefsUpdate();
+    }
+
+    Ptr CellStore::searchExact(unsigned int refNum, unsigned int mpNum, std::string_view refId, bool actorsOnly)
+    {
+        if (refNum == 0 && mpNum == 0)
+            return Ptr();
+
+        Ptr found;
+        forEach([&](const Ptr& ptr) {
+            if (ptr.getCellRef().getRefNum().mIndex == refNum && ptr.getCellRef().getMpNum() == mpNum)
+            {
+                if (!actorsOnly || ptr.getClass().isActor())
+                {
+                    if (refId.empty() || ptr.getCellRef().getRefId() == ESM::RefId::deserializeText(refId))
+                    {
+                        found = ptr;
+                        return false;
+                    }
+                }
+            }
+            return true;
+        });
+        return found;
+    }
 }

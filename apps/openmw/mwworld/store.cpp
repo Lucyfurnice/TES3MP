@@ -870,6 +870,18 @@ namespace MWWorld
         return find(cell.mId);
     }
 
+    ESM::Pathgrid* Store<ESM::Pathgrid>::insert(const ESM::Pathgrid& pathgrid)
+    {
+        bool interior = pathgrid.mData.mX == 0 && pathgrid.mData.mY == 0
+            && mCells->search(pathgrid.mCell.getRefIdString()) != nullptr;
+        ESM::RefId cell
+            = interior ? pathgrid.mCell : ESM::RefId::esm3ExteriorCell(pathgrid.mData.mX, pathgrid.mData.mY);
+        auto [it, inserted] = mStatic.emplace(cell, pathgrid);
+        if (!inserted)
+            it->second = pathgrid;
+        return &it->second;
+    }
+
     // Skill
     //=========================================================================
 

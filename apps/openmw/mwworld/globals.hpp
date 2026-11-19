@@ -72,6 +72,8 @@ namespace MWWorld
         ///< Records for variables that do not exist are dropped silently.
         ///
         /// \return Known type?
+
+        void addRecord(const ESM::Global& global);
     };
 }
 

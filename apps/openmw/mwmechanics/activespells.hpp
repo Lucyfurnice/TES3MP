@@ -42,6 +42,7 @@ namespace MWMechanics
             ESM::ActiveSpells::Flags mFlags;
             int mWorsenings;
             MWWorld::TimeStamp mNextWorsening;
+            MWWorld::TimeStamp mTimeStamp;
             MWWorld::Ptr mSource;
 
             ActiveSpellParams(const ESM::ActiveSpells::ActiveSpellParams& params);
@@ -88,6 +89,9 @@ namespace MWMechanics
             bool shouldWorsen() const;
 
             void resetWorsenings();
+
+            const MWWorld::TimeStamp& getTimeStamp() const { return mTimeStamp; }
+            void setTimeStamp(const MWWorld::TimeStamp& timestamp) { mTimeStamp = timestamp; }
         };
 
         typedef std::list<ActiveSpellParams> Collection;
@@ -145,6 +149,12 @@ namespace MWMechanics
 
         /// Force resistances
         void addSpell(const ESM::Spell* spell, const MWWorld::Ptr& actor, bool ignoreResistances = true);
+
+        void addSpell(const ESM::RefId& id, bool stack, std::vector<ActiveEffect> effects,
+            const std::string& displayName, ESM::RefNum caster, MWWorld::TimeStamp timestamp);
+
+        bool removeSpellByTimestamp(const MWWorld::Ptr& ptr, const ESM::RefId& id, MWWorld::TimeStamp timestamp);
+        float getEffectDuration(const ESM::RefId& effectId, const ESM::RefId& sourceId) const;
 
         /// Removes the active effects from this spell/potion/.. with \a id
         void removeEffectsBySourceSpellId(const MWWorld::Ptr& ptr, const ESM::RefId& id);

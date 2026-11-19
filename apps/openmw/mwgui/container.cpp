@@ -413,4 +413,30 @@ namespace MWGui
         if (ptr == mPtr)
             mUpdateNextFrame = true;
     }
+
+    bool ContainerWindow::isOnDragAndDrop()
+    {
+        return mDragAndDrop->mIsOnDragAndDrop;
+    }
+
+    bool ContainerWindow::dragItemByPtr(const MWWorld::Ptr& itemPtr, int dragCount)
+    {
+        ItemModel::ModelIndex newIndex = -1;
+        for (size_t i = 0; i < mModel->getItemCount(); ++i)
+        {
+            if (mModel->getItem(i).mBase == itemPtr)
+            {
+                newIndex = static_cast<ItemModel::ModelIndex>(i);
+                break;
+            }
+        }
+
+        if (newIndex != -1)
+        {
+            mDragAndDrop->startDrag(newIndex, mSortModel, mModel, mItemView, dragCount);
+            return true;
+        }
+
+        return false;
+    }
 }

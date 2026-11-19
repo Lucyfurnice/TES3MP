@@ -354,6 +354,18 @@ namespace MWGui
         activateQuickKey(mActivated->index);
     }
 
+    void QuickKeysMenu::setSelectedIndex(int index)
+    {
+        if (index >= 0 && static_cast<size_t>(index) < mKey.size())
+            mSelected = &mKey[index];
+    }
+
+    void QuickKeysMenu::unassignIndex(int index)
+    {
+        if (index >= 0 && static_cast<size_t>(index) < mKey.size())
+            unassign(&mKey[index]);
+    }
+
     void QuickKeysMenu::activateQuickKey(int index)
     {
         assert(index >= 1 && index <= 10);

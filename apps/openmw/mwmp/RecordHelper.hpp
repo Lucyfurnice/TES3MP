@@ -46,15 +46,21 @@ namespace RecordHelper
     {
         MWBase::World *world = MWBase::Environment::get().getWorld();
 
-        return world->createRecord(record);
+        return world->getModifiableStore().insert(record);
+    }
+
+    template<class RecordType>
+    bool doesRecordIdExist(const ESM::RefId& id)
+    {
+        MWBase::World *world = MWBase::Environment::get().getWorld();
+
+        return world->getStore().get<RecordType>().search(id) != nullptr;
     }
 
     template<class RecordType>
     bool doesRecordIdExist(const std::string& id)
     {
-        MWBase::World *world = MWBase::Environment::get().getWorld();
-
-        return world->getStore().get<RecordType>().search(id);
+        return doesRecordIdExist<RecordType>(ESM::RefId::stringRefId(id));
     }
 
     void createPlaceholderInteriorCell();

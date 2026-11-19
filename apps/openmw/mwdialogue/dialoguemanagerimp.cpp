@@ -761,4 +761,24 @@ namespace MWDialogue
                 mLastTopic, actor.getClass().getName(actor));
         }
     }
+
+    std::string DialogueManager::getVoiceCaption(const std::string& sound) const
+    {
+        const MWWorld::Store<ESM::Dialogue>& dialogues
+            = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>();
+
+        for (const ESM::Dialogue& dialogue : dialogues)
+        {
+            if (dialogue.mType == ESM::Dialogue::Voice)
+            {
+                for (const ESM::DialInfo& info : dialogue.mInfo)
+                {
+                    if (!info.mSound.empty() && Misc::StringUtils::ciEqual(sound, info.mSound))
+                        return info.mResponse;
+                }
+            }
+        }
+
+        return "???";
+    }
 }

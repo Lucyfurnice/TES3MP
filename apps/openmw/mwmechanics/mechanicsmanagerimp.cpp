@@ -605,6 +605,11 @@ namespace MWMechanics
         return mActors.countDeaths(id);
     }
 
+    void MechanicsManager::setDeaths(const ESM::RefId& id, int number)
+    {
+        mActors.setDeaths(id, number);
+    }
+
     void MechanicsManager::getPersuasionDispositionChange(
         const MWWorld::Ptr& npc, PersuasionType type, bool& success, int& tempChange, int& permChange)
     {
@@ -888,9 +893,14 @@ namespace MWMechanics
 
     bool MechanicsManager::isBoundItem(const MWWorld::Ptr& item)
     {
+        return isBoundItem(item.getCellRef().getRefId());
+    }
+
+    bool MechanicsManager::isBoundItem(const ESM::RefId& itemId)
+    {
         static const std::set<ESM::RefId> boundItemIdCache = makeBoundItemIdCache();
 
-        return boundItemIdCache.find(item.getCellRef().getRefId()) != boundItemIdCache.end();
+        return boundItemIdCache.find(itemId) != boundItemIdCache.end();
     }
 
     bool MechanicsManager::isAllowedToUse(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, MWWorld::Ptr& victim)
@@ -1931,6 +1941,11 @@ namespace MWMechanics
     bool MechanicsManager::isAttackingOrSpell(const MWWorld::Ptr& ptr) const
     {
         return mActors.isAttackingOrSpell(ptr);
+    }
+
+    void MechanicsManager::setAttackingOrSpell(const MWWorld::Ptr& ptr, bool state) const
+    {
+        mActors.setAttackingOrSpell(ptr, state);
     }
 
     void MechanicsManager::setWerewolf(const MWWorld::Ptr& actor, bool werewolf)

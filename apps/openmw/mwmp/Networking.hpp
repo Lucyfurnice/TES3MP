@@ -3,6 +3,9 @@
 
 #include <RakPeerInterface.h>
 #include <BitStream.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 #include <string>
 
 #include <components/openmw-mp/NetworkMessages.hpp>

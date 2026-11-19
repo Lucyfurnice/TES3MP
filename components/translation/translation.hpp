@@ -24,6 +24,10 @@ namespace Translation
         // Manual population for testing
         void addPhraseForm(std::string_view phrase, std::string_view topicId);
 
+        bool hasTranslation() const { return !mPhraseForms.empty() || !mKeywords.empty(); }
+        std::string getLocalizedTopicId(std::string_view topicId) const { return std::string(topicStandardForm(topicId)); }
+        std::string topicID(std::string_view phrase) const { return std::string(topicStandardForm(phrase)); }
+
         void setEncoder(ToUTF8::Utf8Encoder* encoder);
 
     private:

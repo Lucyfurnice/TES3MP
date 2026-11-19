@@ -322,4 +322,19 @@ namespace MWMechanics
         if (mSpellList)
             mSpellList->removeListener(this);
     }
+
+    void Spells::setPowerUseTimestamp(const ESM::Spell* spell, int startDay, float startHour)
+    {
+        ESM::TimeStamp timestamp;
+        timestamp.mDay = startDay;
+        timestamp.mHour = startHour;
+        MWWorld::TimeStamp ts(timestamp);
+
+        auto it = std::find_if(mUsedPowers.begin(), mUsedPowers.end(),
+            [spell](const auto& pair) { return pair.first == spell; });
+        if (it != mUsedPowers.end())
+            it->second = ts;
+        else
+            mUsedPowers.emplace_back(spell, ts);
+    }
 }

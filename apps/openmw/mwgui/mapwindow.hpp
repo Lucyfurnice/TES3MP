@@ -13,6 +13,11 @@
 #include <components/esm3/custommarkerstate.hpp>
 #include <components/misc/constants.hpp>
 
+namespace mwmp
+{
+    class GUIController;
+}
+
 namespace MWRender
 {
     class GlobalMap;
@@ -74,6 +79,8 @@ namespace MWGui
 
     class LocalMapBase
     {
+        friend class mwmp::GUIController;
+
     public:
         LocalMapBase(CustomMarkerCollection& markers, MWRender::LocalMap* localMapRender, bool fogOfWarEnabled);
         virtual ~LocalMapBase();
@@ -152,11 +159,13 @@ namespace MWGui
         std::vector<MarkerWidget*> mInteriorDoorMarkerWidgets;
         std::vector<MyGUI::Widget*> mMagicMarkerWidgets;
         std::vector<MyGUI::Widget*> mCustomMarkerWidgets;
+        std::vector<MyGUI::Widget*> mPlayerMarkerWidgets;
         std::vector<MarkerWidget*> mDoorMarkersToRecycle;
 
         std::vector<MarkerWidget*>& currentDoorMarkersWidgets();
 
         virtual void updateCustomMarkers();
+        virtual void updatePlayerMarkers() {}
 
         void applyFogOfWar();
 
@@ -228,6 +237,8 @@ namespace MWGui
 
     class MapWindow : public MWGui::WindowPinnableBase, public LocalMapBase, public NoDrop
     {
+        friend class mwmp::GUIController;
+
     public:
         MapWindow(CustomMarkerCollection& customMarkers, DragAndDrop* drag, MWRender::LocalMap* localMapRender,
             SceneUtil::WorkQueue* workQueue);
@@ -246,6 +257,7 @@ namespace MWGui
 
         // reveals this cell's map on the global map
         void cellExplored(int x, int y);
+        void setGlobalMapImage(int cellX, int cellY, const std::vector<char>& imageData);
 
         void setGlobalMapPlayerPosition(float worldX, float worldY);
         void setGlobalMapPlayerDir(const float x, const float y);
@@ -257,6 +269,7 @@ namespace MWGui
         void onFrame(float dt) override;
 
         void updateCustomMarkers() override;
+        void updatePlayerMarkers() override;
 
         /// Clear all savegame-specific data
         void clear() override;

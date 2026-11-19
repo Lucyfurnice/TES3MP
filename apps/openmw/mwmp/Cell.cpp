@@ -1,7 +1,10 @@
-#include <components/esm/cellid.hpp>
+#include <components/esm3/cellid.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
+#include <components/openmw-mp/Utils.hpp>
 
 #include "../mwbase/environment.hpp"
+
+#include "../mwmechanics/drawstate.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/livecellref.hpp"
@@ -45,7 +48,7 @@ void Cell::updateLocal(bool forceUpdate)
     ActorList *actorList = mwmp::Main::get().getNetworking()->getActorList();
     actorList->reset();
 
-    actorList->cell = *store->getCell();
+    actorList->cell = store->getCell()->getEsm3();
 
     for (auto it = localActors.begin(); it != localActors.end();)
     {
@@ -62,7 +65,7 @@ void Cell::updateLocal(bool forceUpdate)
             if (cellController->hasLocalAuthority(actor->cell))
             {
                 LOG_APPEND(TimedLog::LOG_VERBOSE, "- Moving LocalActor %s to our authority in %s",
-                    mapIndex.c_str(), actor->cell.getShortDescription().c_str());
+                    mapIndex.c_str(), Utils::getCellDescription(actor->cell).c_str());
                 Cell *newCell = cellController->getCell(actor->cell);
                 newCell->localActors[mapIndex] = actor;
                 cellController->setLocalActorRecord(mapIndex, newCell->getShortDescription());
@@ -81,7 +84,7 @@ void Cell::updateLocal(bool forceUpdate)
         {
             if (actor->getPtr().getRefData().isEnabled())
             {
-                if (actor->getPtr().getRefData().isDeleted())
+                if (actor->getPtr().getCellRef().getCount() == 0 || actor->getPtr().getRefData().isDeletedByContentFile())
                 {
                     std::string mapIndex = it->first;
                     LOG_APPEND(TimedLog::LOG_VERBOSE, "- Deleting LocalActor %s whose reference has been deleted",
@@ -391,9 +394,9 @@ void Cell::readCast(ActorList& actorList)
 
             // Set the correct drawState here if we've somehow we've missed a previous
             // AnimFlags packet
-            if (actor->drawState != MWMechanics::DrawState_::DrawState_Spell)
+            if (actor->drawState != static_cast<char>(MWMechanics::DrawState::Spell))
             {
-                actor->drawState = MWMechanics::DrawState_::DrawState_Spell;
+                actor->drawState = static_cast<char>(MWMechanics::DrawState::Spell);
                 actor->setAnimFlags();
             }
 
@@ -415,7 +418,7 @@ void Cell::readCellChange(ActorList& actorList)
         std::string mapIndex = Main::get().getCellController()->generateMapIndex(baseActor);
 
         // Is a packet mistakenly moving the actor to the cell it's already in? If so, ignore it
-        if (Misc::StringUtils::ciEqual(getShortDescription(), baseActor.cell.getShortDescription()))
+        if (Misc::StringUtils::ciEqual(getShortDescription(), Utils::getCellDescription(baseActor.cell)))
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Server says DedicatedActor %s moved to %s, but it was already there",
                 mapIndex.c_str(), getShortDescription().c_str());
@@ -430,7 +433,7 @@ void Cell::readCellChange(ActorList& actorList)
             dedicatedActor->direction = baseActor.direction;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Server says DedicatedActor %s moved to %s",
-                mapIndex.c_str(), dedicatedActor->cell.getShortDescription().c_str());
+                mapIndex.c_str(), Utils::getCellDescription(dedicatedActor->cell).c_str());
 
             MWWorld::CellStore *newStore = cellController->getCellStore(dedicatedActor->cell);
             dedicatedActor->setCell(newStore);
@@ -439,7 +442,7 @@ void Cell::readCellChange(ActorList& actorList)
             if (cellController->isActiveWorldCell(dedicatedActor->cell) && !cellController->hasLocalAuthority(dedicatedActor->cell))
             {
                 LOG_APPEND(TimedLog::LOG_VERBOSE, "- Moving DedicatedActor %s to our active cell %s",
-                    mapIndex.c_str(), dedicatedActor->cell.getShortDescription().c_str());
+                    mapIndex.c_str(), Utils::getCellDescription(dedicatedActor->cell).c_str());
                 cellController->initializeCell(dedicatedActor->cell);
                 Cell *newCell = cellController->getCell(dedicatedActor->cell);
                 newCell->dedicatedActors[mapIndex] = dedicatedActor;
@@ -450,7 +453,7 @@ void Cell::readCellChange(ActorList& actorList)
                 if (cellController->hasLocalAuthority(dedicatedActor->cell))
                 {
                     LOG_APPEND(TimedLog::LOG_VERBOSE, "- Creating new LocalActor based on %s in %s",
-                        mapIndex.c_str(), dedicatedActor->cell.getShortDescription().c_str());
+                        mapIndex.c_str(), Utils::getCellDescription(dedicatedActor->cell).c_str());
                     Cell *newCell = cellController->getCell(dedicatedActor->cell);
                     LocalActor *localActor = new LocalActor();
                     localActor->cell = dedicatedActor->cell;
@@ -483,7 +486,7 @@ void Cell::initializeLocalActor(const MWWorld::Ptr& ptr)
     LOG_APPEND(TimedLog::LOG_VERBOSE, "- Initializing LocalActor %s in %s", mapIndex.c_str(), getShortDescription().c_str());
 
     LocalActor *actor = new LocalActor();
-    actor->cell = *store->getCell();
+    actor->cell = store->getCell()->getEsm3();
     actor->setPtr(ptr);
 
     localActors[mapIndex] = actor;
@@ -497,17 +500,15 @@ void Cell::initializeLocalActors()
 {
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Initializing LocalActors in %s", getShortDescription().c_str());
 
-    for (const auto &mergedRef : store->getMergedRefs())
+    store->forEach([&](const MWWorld::Ptr& ptr)
     {
-        if (mergedRef->mClass->isActor())
+        if (ptr.getClass().isActor())
         {
-            MWWorld::Ptr ptr(mergedRef, store);
-
             // If this Ptr is lacking a unique index, ignore it
-            if (ptr.getCellRef().getRefNum().mIndex == 0 && ptr.getCellRef().getMpNum() == 0) continue;
+            if (ptr.getCellRef().getRefNum().mIndex == 0 && ptr.getCellRef().getMpNum() == 0) return true;
 
             // If this Ptr is disabled or deleted, ignore it
-            if (!ptr.getRefData().isEnabled() || ptr.getRefData().isDeleted()) continue;
+            if (!ptr.getRefData().isEnabled() || ptr.getCellRef().getCount() == 0 || ptr.getRefData().isDeletedByContentFile()) return true;
 
             std::string mapIndex = Main::get().getCellController()->generateMapIndex(ptr);
 
@@ -515,7 +516,9 @@ void Cell::initializeLocalActors()
             if (localActors.count(mapIndex) == 0)
                 initializeLocalActor(ptr);
         }
-    }
+
+        return true;
+    });
 
     LOG_APPEND(TimedLog::LOG_VERBOSE, "- Successfully initialized LocalActors in %s", getShortDescription().c_str());
 }
@@ -526,7 +529,7 @@ void Cell::initializeDedicatedActor(const MWWorld::Ptr& ptr)
     LOG_APPEND(TimedLog::LOG_VERBOSE, "- Initializing DedicatedActor %s in %s", mapIndex.c_str(), getShortDescription().c_str());
 
     DedicatedActor *actor = new DedicatedActor();
-    actor->cell = *store->getCell();
+    actor->cell = store->getCell()->getEsm3();
     actor->setPtr(ptr);
 
     dedicatedActors[mapIndex] = actor;
@@ -547,7 +550,7 @@ void Cell::initializeDedicatedActors(ActorList& actorList)
         {
             MWWorld::Ptr ptrFound = store->searchExact(baseActor.refNum, baseActor.mpNum, baseActor.refId, true);
 
-            if (!ptrFound) continue;
+            if (ptrFound.isEmpty()) continue;
 
             initializeDedicatedActor(ptrFound);
         }
@@ -614,5 +617,5 @@ MWWorld::CellStore *Cell::getCellStore()
 
 std::string Cell::getShortDescription()
 {
-    return store->getCell()->getShortDescription();
+    return Utils::getCellDescription(store->getCell()->getEsm3());
 }

@@ -5,6 +5,9 @@
 #include "../mwgui/itemmodel.hpp"
 #include "../mwworld/worldimp.hpp"
 #include <RakNetTypes.h>
+#ifdef DrawState
+#undef DrawState
+#endif
 
 namespace mwmp
 {

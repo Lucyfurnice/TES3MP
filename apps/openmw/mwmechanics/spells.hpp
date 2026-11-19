@@ -61,6 +61,7 @@ namespace MWMechanics
 
         bool canUsePower(const ESM::Spell* spell) const;
         void usePower(const ESM::Spell* spell);
+        void setPowerUseTimestamp(const ESM::Spell* spell, int startDay, float startHour);
 
         void purgeCommonDisease();
         void purgeBlightDisease();

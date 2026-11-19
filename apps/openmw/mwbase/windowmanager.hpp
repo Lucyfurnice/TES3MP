@@ -13,6 +13,7 @@
 
 #include "../mwgui/mode.hpp"
 
+#include <components/esm/refid.hpp>
 #include <components/sdlutil/events.hpp>
 
 namespace ESM
@@ -159,6 +160,8 @@ namespace MWBase
         virtual MWGui::CountDialog* getCountDialog() = 0;
         virtual MWGui::ConfirmationDialog* getConfirmationDialog() = 0;
         virtual MWGui::TradeWindow* getTradeWindow() = 0;
+        virtual MWGui::ContainerWindow* getContainerWindow() = 0;
+        virtual MWGui::DialogueWindow* getDialogueWindow() = 0;
         virtual MWGui::HUD* getHud() = 0;
         virtual MWGui::PostProcessorHud* getPostProcessorHud() = 0;
         virtual std::vector<MWGui::WindowBase*> getGuiModeWindows(MWGui::GuiMode mode) = 0;
@@ -169,6 +172,8 @@ namespace MWBase
         virtual void updateSpellWindow() = 0;
 
         virtual void setConsoleSelectedObject(const MWWorld::Ptr& object) = 0;
+        virtual void setConsolePtr(const MWWorld::Ptr& object) = 0;
+        virtual void clearConsolePtr() = 0;
         virtual MWWorld::Ptr getConsoleSelectedObject() const = 0;
         virtual void setConsoleMode(std::string_view mode) = 0;
         virtual const std::string& getConsoleMode() = 0;
@@ -187,6 +192,8 @@ namespace MWBase
         virtual void changeCell(const MWWorld::CellStore* cell) = 0;
         ///< change the active cell
 
+        virtual void setGlobalMapImage(int cellX, int cellY, const std::vector<char>& imageData) = 0;
+
         virtual void setFocusObject(const MWWorld::Ptr& focus) = 0;
         virtual void setFocusObjectScreenCoords(float x, float y) = 0;
 
@@ -195,6 +202,7 @@ namespace MWBase
         virtual void getMousePosition(int& x, int& y) = 0;
         virtual void getMousePosition(float& x, float& y) = 0;
         virtual void setDragDrop(bool dragDrop) = 0;
+        virtual void finishDragDrop() = 0;
         virtual bool getWorldMouseOver() = 0;
 
         virtual float getScalingFactor() const = 0;
@@ -222,6 +230,7 @@ namespace MWBase
         virtual void activateQuickKey(int index) = 0;
         /// update activated quick key state (if action executing was delayed for some reason)
         virtual void updateActivatedQuickKey() = 0;
+        virtual void setQuickKey(int slot, int quickKeyType, MWWorld::Ptr item, const ESM::RefId& spellId = {}) = 0;
 
         virtual const ESM::RefId& getSelectedSpell() = 0;
         virtual void setSelectedSpell(const ESM::RefId& spellId, int successChancePercent) = 0;
@@ -280,6 +289,7 @@ namespace MWBase
         virtual void processChangedSettings(const std::set<std::pair<std::string, std::string>>& changed) = 0;
 
         virtual void executeInConsole(const std::filesystem::path& path) = 0;
+        virtual void executeCommandInConsole(const std::string& command) = 0;
 
         virtual void enableRest() = 0;
         virtual bool getRestEnabled() = 0;

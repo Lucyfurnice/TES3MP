@@ -18,6 +18,10 @@
 
 #include "../mwsound/sound.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/Worldstate.hpp"
+
 #include "../mwrender/renderingmanager.hpp"
 #include "../mwrender/sky.hpp"
 
@@ -769,6 +773,40 @@ namespace MWWorld
         }
     }
 
+    void WeatherManager::setRegionWeather(const ESM::RefId& region, const int currentWeather, const int nextWeather,
+        const int queuedWeather, const float transitionFactor, bool force)
+    {
+        if (region == mCurrentRegion)
+        {
+            if (force)
+            {
+                mCurrentWeather = currentWeather;
+                mNextWeather = nextWeather;
+                mQueuedWeather = queuedWeather;
+                mTransitionFactor = transitionFactor;
+            }
+            else
+            {
+                if (mCurrentWeather == currentWeather && mNextWeather == nextWeather)
+                {
+                    mQueuedWeather = queuedWeather;
+                }
+                else if (mNextWeather != nextWeather && nextWeather != -1)
+                {
+                    changeWeather(region, nextWeather);
+                }
+                else if (mCurrentWeather != currentWeather)
+                {
+                    changeWeather(region, currentWeather);
+                }
+            }
+        }
+        else
+        {
+            changeWeather(region, currentWeather);
+        }
+    }
+
     float WeatherManager::calculateWindSpeed(int weatherId, float currentSpeed)
     {
         float targetSpeed = std::min(8.0f * mWeatherSettings[weatherId].mWindSpeed, 70.f);
@@ -1086,6 +1124,23 @@ namespace MWWorld
         forceWeather(0);
         mRegions.clear();
         importRegions();
+    }
+
+    bool WeatherManager::getWeatherCreationState()
+    {
+        return mWeatherCreationState;
+    }
+
+    void WeatherManager::setWeatherCreationState(bool state)
+    {
+        mWeatherCreationState = state;
+    }
+
+    void WeatherManager::sendWeather()
+    {
+        mwmp::Worldstate* worldstate = mwmp::Main::get().getNetworking()->getWorldstate();
+        worldstate->sendWeather(mCurrentRegion.empty() ? std::string() : mCurrentRegion.getRefIdString(),
+            mCurrentWeather, mNextWeather, mQueuedWeather, mTransitionFactor);
     }
 
     inline void WeatherManager::addWeather(

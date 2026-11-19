@@ -259,7 +259,7 @@ namespace MWWorld
             Store<T>& store = getWritable<T>();
 
             T* ptr = store.insert(x);
-            if constexpr (std::is_convertible_v<Store<T>*, DynamicStore*>)
+            if constexpr (!std::is_same_v<T, ESM::Pathgrid> && std::is_convertible_v<Store<T>*, DynamicStore*>)
             {
                 setIdType(ptr->mId, T::sRecordId);
             }

@@ -97,6 +97,8 @@ namespace MWMechanics
         int countDeaths(const ESM::RefId& id) const override;
         ///< Return the number of deaths for actors with the given ID.
 
+        void setDeaths(const ESM::RefId& id, int number) override;
+
         void getPersuasionDispositionChange(
             const MWWorld::Ptr& npc, PersuasionType type, bool& success, int& tempChange, int& permChange) override;
         ///< Perform a persuasion action on NPC
@@ -199,6 +201,7 @@ namespace MWMechanics
         bool isReadyToBlock(const MWWorld::Ptr& ptr) const override;
         /// Is \a ptr casting spell or using weapon now?
         bool isAttackingOrSpell(const MWWorld::Ptr& ptr) const override;
+        void setAttackingOrSpell(const MWWorld::Ptr& ptr, bool state) const override;
 
         void castSpell(const MWWorld::Ptr& ptr, const ESM::RefId& spellId, bool scriptedSpell = false) override;
 
@@ -220,6 +223,7 @@ namespace MWMechanics
         bool isItemStolenFrom(const ESM::RefId& itemid, const MWWorld::Ptr& ptr) override;
 
         bool isBoundItem(const MWWorld::Ptr& item) override;
+        bool isBoundItem(const ESM::RefId& itemId) override;
 
         /// @return is \a ptr allowed to take/use \a target or is it a crime?
         bool isAllowedToUse(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, MWWorld::Ptr& victim) override;

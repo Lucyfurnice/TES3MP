@@ -639,4 +639,35 @@ namespace MWRender
         mWritePng = new WritePng(new osg::Image(*mOverlayImage, osg::CopyOp::DEEP_COPY_ALL));
         mWorkQueue->addWorkItem(mWritePng, /*front=*/true);
     }
+
+    void GlobalMap::setImage(int cellX, int cellY, const std::vector<char>& imageData)
+    {
+        ensureLoaded();
+        if (imageData.empty())
+            return;
+        if (cellX > mMaxX || cellX < mMinX || cellY > mMaxY || cellY < mMinY)
+            return;
+
+        Files::IMemStream istream(imageData.data(), imageData.size());
+        osgDB::ReaderWriter* readerwriter = osgDB::Registry::instance()->getReaderWriterForExtension("png");
+        if (!readerwriter)
+            return;
+        osgDB::ReaderWriter::ReadResult result = readerwriter->readImage(istream);
+        if (!result.success())
+            return;
+
+        osg::ref_ptr<osg::Texture2D> texture(new osg::Texture2D);
+        texture->setImage(result.getImage());
+        texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        texture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+        texture->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+        texture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+        texture->setResizeNonPowerOfTwoHint(false);
+
+        const int cellSize = Settings::map().mGlobalMapCellSize;
+        const int originX = (cellX - mMinX) * cellSize;
+        const int originY = (cellY - mMinY + 1) * cellSize;
+        requestOverlayTextureUpdate(
+            originX, mHeight - originY, cellSize, cellSize, std::move(texture), false, true);
+    }
 }

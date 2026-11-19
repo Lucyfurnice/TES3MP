@@ -147,8 +147,9 @@ namespace MWMechanics
             if (storage.mTimer < 0)
             {
                 float activeRange = followDistance + 384.f;
-                if (targetDir.length2() < activeRange * activeRange
-                    && MWBase::Environment::get().getWorld()->getLOS(actor, target))
+                if (mIgnoreDistance
+                    || (targetDir.length2() < activeRange * activeRange
+                        && MWBase::Environment::get().getWorld()->getLOS(actor, target)))
                     mActive = true;
                 storage.mTimer = 0.5f;
             }

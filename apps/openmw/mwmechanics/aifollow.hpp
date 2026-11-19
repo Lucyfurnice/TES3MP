@@ -83,6 +83,8 @@ namespace MWMechanics
             return target.getRefData().getPosition().asVec3();
         }
 
+        void allowAnyDistance(bool state) { mIgnoreDistance = state; }
+
     private:
         /// This will make the actor always follow.
         /** Thus ignoring mDuration and mX,mY,mZ (used for summoned creatures). **/
@@ -97,6 +99,7 @@ namespace MWMechanics
         const int mFollowIndex;
 
         static int mFollowIndexCounter;
+        bool mIgnoreDistance = false;
     };
 }
 #endif

@@ -1,5 +1,6 @@
 #include <components/detournavigator/navigator.hpp>
-#include <components/esm/cellid.hpp>
+#include <components/esm/exteriorcelllocation.hpp>
+#include <components/esm3/cellid.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Utils.hpp>
 
@@ -8,6 +9,7 @@
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/worldimp.hpp"
+#include "../mwworld/worldmodel.hpp"
 
 #include "CellController.hpp"
 #include "Main.hpp"
@@ -39,7 +41,7 @@ void CellController::updateLocal(bool forceUpdate)
     {
         mwmp::Cell *mpCell = it->second;
 
-        if (mpCell->getCellStore() == nullptr || mpCell->getCellStore()->getCell() == nullptr || !world->isCellActive(*mpCell->getCellStore()->getCell()))
+        if (mpCell->getCellStore() == nullptr || mpCell->getCellStore()->getCell() == nullptr || !world->isCellActive(mpCell->getCellStore()->getCell()->getEsm3()))
         {
             mpCell->uninitializeLocalActors();
             mpCell->uninitializeDedicatedActors();
@@ -85,12 +87,12 @@ void CellController::updateDedicated(float dt)
 
 void CellController::initializeCell(const ESM::Cell& cell)
 {
-    std::string mapIndex = cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(cell);
 
     // If this key doesn't exist, create it
     if (cellsInitialized.count(mapIndex) == 0)
     {
-        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Initializing mwmp::Cell %s", cell.getShortDescription().c_str());
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Initializing mwmp::Cell %s", Utils::getCellDescription(cell).c_str());
 
         MWWorld::CellStore *cellStore = getCellStore(cell);
 
@@ -99,13 +101,13 @@ void CellController::initializeCell(const ESM::Cell& cell)
         mwmp::Cell *mpCell = new mwmp::Cell(cellStore);
         cellsInitialized[mapIndex] = mpCell;
 
-        LOG_APPEND(TimedLog::LOG_VERBOSE, "- Successfully initialized mwmp::Cell %s", cell.getShortDescription().c_str());
+        LOG_APPEND(TimedLog::LOG_VERBOSE, "- Successfully initialized mwmp::Cell %s", Utils::getCellDescription(cell).c_str());
     }
 }
 
 void CellController::uninitializeCell(const ESM::Cell& cell)
 {
-    std::string mapIndex = cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(cell);
 
     // If this key exists, erase the key-value pair from the map
     if (cellsInitialized.count(mapIndex) > 0)
@@ -136,7 +138,7 @@ void CellController::uninitializeCells()
 
 void CellController::readPositions(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -147,7 +149,7 @@ void CellController::readPositions(ActorList& actorList)
 
 void CellController::readAnimFlags(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -158,7 +160,7 @@ void CellController::readAnimFlags(ActorList& actorList)
 
 void CellController::readAnimPlay(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -169,7 +171,7 @@ void CellController::readAnimPlay(ActorList& actorList)
 
 void CellController::readStatsDynamic(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -180,7 +182,7 @@ void CellController::readStatsDynamic(ActorList& actorList)
 
 void CellController::readDeath(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -191,7 +193,7 @@ void CellController::readDeath(ActorList& actorList)
 
 void CellController::readEquipment(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -202,7 +204,7 @@ void CellController::readEquipment(ActorList& actorList)
 
 void CellController::readSpeech(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -213,7 +215,7 @@ void CellController::readSpeech(ActorList& actorList)
 
 void CellController::readSpellsActive(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -224,7 +226,7 @@ void CellController::readSpellsActive(ActorList& actorList)
 
 void CellController::readAi(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -235,7 +237,7 @@ void CellController::readAi(ActorList& actorList)
 
 void CellController::readAttack(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -246,7 +248,7 @@ void CellController::readAttack(ActorList& actorList)
 
 void CellController::readCast(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -257,7 +259,7 @@ void CellController::readCast(ActorList& actorList)
 
 void CellController::readCellChange(ActorList& actorList)
 {
-    std::string mapIndex = actorList.cell.getShortDescription();
+    std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
 
@@ -412,7 +414,7 @@ bool CellController::isInitializedCell(const std::string& cellDescription)
 
 bool CellController::isInitializedCell(const ESM::Cell& cell)
 {
-    return isInitializedCell(cell.getShortDescription());
+    return isInitializedCell(Utils::getCellDescription(cell));
 }
 
 bool CellController::isActiveWorldCell(const ESM::Cell& cell)
@@ -422,7 +424,7 @@ bool CellController::isActiveWorldCell(const ESM::Cell& cell)
 
 Cell *CellController::getCell(const ESM::Cell& cell)
 {
-    return cellsInitialized.at(cell.getShortDescription());
+    return cellsInitialized.at(Utils::getCellDescription(cell));
 }
 
 MWWorld::CellStore *CellController::getCellStore(const ESM::Cell& cell)
@@ -430,12 +432,12 @@ MWWorld::CellStore *CellController::getCellStore(const ESM::Cell& cell)
     MWWorld::CellStore *cellStore;
 
     if (cell.isExterior())
-        cellStore = MWBase::Environment::get().getWorld()->getExterior(cell.mData.mX, cell.mData.mY);
+        cellStore = &MWBase::Environment::get().getWorldModel()->getExterior(ESM::ExteriorCellLocation(cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId));
     else
     {
         try
         {
-            cellStore = MWBase::Environment::get().getWorld()->getInterior(cell.mName);
+            cellStore = &MWBase::Environment::get().getWorldModel()->getInterior(cell.mName);
         }
         catch (std::exception&)
         {

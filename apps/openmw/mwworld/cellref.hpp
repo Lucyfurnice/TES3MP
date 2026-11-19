@@ -38,6 +38,9 @@ namespace MWWorld
         // Set RefNum to its default state.
         void unsetRefNum() { setRefNum({}); }
 
+        unsigned int getMpNum() const { return mMpNum; }
+        void setMpNum(unsigned int index) { mMpNum = index; }
+
         /// Does the RefNum have a content file?
         bool hasContentFile() const { return getRefNum().hasContentFile(); }
 
@@ -66,11 +69,15 @@ namespace MWWorld
             return std::visit(Visitor(), mCellRef.mVariant);
         }
 
+        void setTeleport(bool teleportState);
+
         // Teleport location for the door, if this is a teleporting door.
         ESM::Position getDoorDest() const;
+        void setDoorDest(const ESM::Position& position);
 
         // Destination cell for doors (optional)
         ESM::RefId getDestCell() const;
+        void setDestCell(const std::string& cellDescription);
 
         // Scale applied to mesh
         float getScale() const
@@ -266,6 +273,7 @@ namespace MWWorld
 
     private:
         bool mChanged = false;
+        unsigned int mMpNum = 0;
         ESM::ReferenceVariant mCellRef;
     };
 

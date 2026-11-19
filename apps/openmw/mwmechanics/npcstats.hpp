@@ -5,6 +5,7 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadskil.hpp>
+#include <ctime>
 #include <map>
 #include <set>
 #include <string>
@@ -28,6 +29,7 @@ namespace MWMechanics
 
         int mReputation;
         int mCrimeId;
+        std::time_t mCrimeTime = std::time(nullptr);
 
         // ----- used by the player only, maybe should be moved at some point -------
         int mBounty;
@@ -65,6 +67,8 @@ namespace MWMechanics
 
         int getCrimeId() const;
         void setCrimeId(int id);
+        std::time_t getCrimeTime() const { return mCrimeTime; }
+        void setCrimeTime(std::time_t crimeTime) { mCrimeTime = crimeTime; }
 
         const SkillValue& getSkill(ESM::RefId id) const;
         SkillValue& getSkill(ESM::RefId id);

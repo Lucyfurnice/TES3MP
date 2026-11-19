@@ -80,6 +80,11 @@ namespace MWDialogue
 
     void Journal::addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor)
     {
+        addEntry(id, index, actor, -1, -1, -1);
+    }
+
+    void Journal::addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor, int daysPassed, int month, int day)
+    {
         // bail out if we already have heard this...
         const ESM::RefId& infoId = JournalEntry::idFromIndex(id, index);
         for (const JournalEntry& entry : mJournal)
@@ -94,6 +99,12 @@ namespace MWDialogue
             }
 
         StampedJournalEntry entry = StampedJournalEntry::makeFromQuest(id, index, actor);
+        if (daysPassed != -1)
+            entry.mDay = daysPassed;
+        if (month != -1)
+            entry.mMonth = month;
+        if (day != -1)
+            entry.mDayOfMonth = day;
 
         Quest& quest = getOrStartQuest(id);
         if (quest.addEntry(entry)) // we are doing slicing on purpose here

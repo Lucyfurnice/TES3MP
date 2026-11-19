@@ -4,6 +4,8 @@
 
 #include "../ActorProcessor.hpp"
 #include <components/detournavigator/navigator.hpp>
+#include <components/detournavigator/updateguard.hpp>
+#include <components/openmw-mp/Utils.hpp>
 #include "apps/openmw/mwmp/Main.hpp"
 #include "apps/openmw/mwmp/CellController.hpp"
 
@@ -19,7 +21,7 @@ namespace mwmp
 
         virtual void Do(ActorPacket &packet, ActorList &actorList)
         {
-            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s about %s", strPacketID.c_str(), actorList.cell.getShortDescription().c_str());
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(actorList.cell).c_str());
             mwmp::CellController *cellController = Main::get().getCellController();
 
             // Never initialize LocalActors in a cell that is no longer loaded, if the server's packet arrived too late
@@ -39,7 +41,8 @@ namespace mwmp
                     // Enable updates for DetourNavigator for advanced pathfinding
                     MWBase::World* world = MWBase::Environment::get().getWorld();
                     world->getNavigator()->setUpdatesEnabled(true);
-                    world->getNavigator()->update(world->getPlayerPtr().getRefData().getPosition().asVec3());
+                    auto navigatorUpdateGuard = world->getNavigator()->makeUpdateGuard();
+                    world->getNavigator()->update(world->getPlayerPtr().getRefData().getPosition().asVec3(), navigatorUpdateGuard.get());
                 }
                 else
                 {

@@ -52,6 +52,9 @@ namespace MWGui
         MWGui::ItemView* getItemView() { return mItemView; }
         ItemModel* getModel() { return mModel; }
 
+        bool isOnDragAndDrop();
+        bool dragItemByPtr(const MWWorld::Ptr& itemPtr, int dragCount);
+
     private:
         Misc::NotNullPtr<DragAndDrop> mDragAndDrop;
         Misc::NotNullPtr<ItemTransfer> mItemTransfer;

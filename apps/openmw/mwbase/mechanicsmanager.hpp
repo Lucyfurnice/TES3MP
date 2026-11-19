@@ -103,6 +103,8 @@ namespace MWBase
         virtual int countDeaths(const ESM::RefId& id) const = 0;
         ///< Return the number of deaths for actors with the given ID.
 
+        virtual void setDeaths(const ESM::RefId& id, int number) = 0;
+
         /// Check if \a observer is potentially aware of \a ptr. Does not do a line of sight check!
         virtual bool awarenessCheck(const MWWorld::Ptr& ptr, const MWWorld::Ptr& observer, bool useCache = true) = 0;
 
@@ -261,6 +263,7 @@ namespace MWBase
         virtual bool isCastingSpell(const MWWorld::Ptr& ptr) const = 0;
         virtual bool isReadyToBlock(const MWWorld::Ptr& ptr) const = 0;
         virtual bool isAttackingOrSpell(const MWWorld::Ptr& ptr) const = 0;
+        virtual void setAttackingOrSpell(const MWWorld::Ptr& ptr, bool state) const = 0;
 
         virtual void castSpell(const MWWorld::Ptr& ptr, const ESM::RefId& spellId, bool scriptedSpell) = 0;
 
@@ -285,6 +288,7 @@ namespace MWBase
         virtual bool isItemStolenFrom(const ESM::RefId& itemid, const MWWorld::Ptr& ptr) = 0;
 
         virtual bool isBoundItem(const MWWorld::Ptr& item) = 0;
+        virtual bool isBoundItem(const ESM::RefId& itemId) = 0;
         virtual bool isAllowedToUse(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, MWWorld::Ptr& victim) = 0;
 
         /// Turn actor into werewolf or normal form.

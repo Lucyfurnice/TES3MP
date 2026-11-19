@@ -197,6 +197,8 @@ namespace DetourNavigator
         virtual RecastMeshTiles getRecastMeshTiles() const = 0;
 
         virtual float getMaxNavmeshAreaRealRadius() const = 0;
+
+        virtual void setUpdatesEnabled(bool /*enabled*/) {}
     };
 
     std::unique_ptr<Navigator> makeNavigator(const Settings& settings, const std::filesystem::path& userDataPath);

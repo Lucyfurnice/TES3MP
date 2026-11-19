@@ -374,6 +374,8 @@ namespace MWWorld
         ///
         /// @return the number of items actually removed
 
+        void setResolved(bool state) { mResolved = state; }
+
         void setSelectedEnchantItem(const ContainerStoreIterator& iterator);
         ///< set the selected magic item (for using enchantments of type "Cast once" or "Cast when used")
         /// \note to unset the selected item, call this method with end() iterator

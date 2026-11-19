@@ -1,5 +1,7 @@
 #include "dialogue.hpp"
 
+#include <components/openmw-mp/Base/BaseStructs.hpp>
+
 #include <MyGUI_Button.h>
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_ProgressBar.h>
@@ -466,6 +468,42 @@ namespace MWGui
         }
         else
             updateTopics();
+    }
+
+    void DialogueWindow::activateDialogueChoice(unsigned char dialogueChoiceType, std::string topic)
+    {
+        if (dialogueChoiceType == mwmp::DialogueChoiceType::TOPIC)
+        {
+            onTopicActivated(topic);
+        }
+        else if (dialogueChoiceType == mwmp::DialogueChoiceType::PERSUASION)
+            mPersuasionDialog.setVisible(true);
+        else if (dialogueChoiceType == mwmp::DialogueChoiceType::COMPANION_SHARE)
+            MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Companion, mPtr);
+        else
+        {
+            MWBase::DialogueManager* dialogueManager = MWBase::Environment::get().getDialogueManager();
+
+            if (dialogueChoiceType == mwmp::DialogueChoiceType::BARTER && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Barter))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Barter, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::SPELLS && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Spells))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_SpellBuying, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::TRAVEL && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Travel))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Travel, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::SPELLMAKING && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Spellmaking))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_SpellCreation, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::ENCHANTING && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Enchanting))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Enchanting, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::TRAINING && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Training))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Training, mPtr);
+            else if (dialogueChoiceType == mwmp::DialogueChoiceType::REPAIR && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Repair))
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_MerchantRepair, mPtr);
+        }
+    }
+
+    MWWorld::Ptr DialogueWindow::getPtr()
+    {
+        return mPtr;
     }
 
     void DialogueWindow::setPtr(const MWWorld::Ptr& actor)

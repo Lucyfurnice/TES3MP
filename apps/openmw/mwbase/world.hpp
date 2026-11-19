@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include <components/esm3/variant.hpp>
 #include <components/misc/rng.hpp>
 #include <components/vfs/pathutil.hpp>
 
@@ -151,6 +152,10 @@ namespace MWBase
 
         virtual MWWorld::ESMStore& getStore() = 0;
         virtual const MWWorld::ESMStore& getStore() const = 0;
+        virtual MWWorld::ESMStore& getModifiableStore() = 0;
+
+        virtual bool hasGlobal(std::string_view name) = 0;
+        virtual void createGlobal(std::string_view name, ESM::VarType varType) = 0;
 
         virtual const std::vector<int>& getESMVersions() const = 0;
 
@@ -193,6 +198,9 @@ namespace MWBase
         /// \param activeOnly do non search inactive cells.
 
         virtual MWWorld::Ptr searchPtr(const ESM::RefId& name, bool activeOnly, bool searchInContainers = true) = 0;
+
+        virtual MWWorld::Ptr searchPtrViaUniqueIndex(int refNum, int mpNum) = 0;
+        virtual void updatePtrsWithRefId(const ESM::RefId& refId) = 0;
         ///< Return a pointer to a liveCellRef with the given name.
         /// \param activeOnly do non search inactive cells.
 
@@ -216,6 +224,14 @@ namespace MWBase
         virtual void changeWeather(const ESM::RefId& region, const unsigned int id) = 0;
 
         virtual void changeWeather(const ESM::RefId& region, const ESM::RefId& id) = 0;
+
+        virtual void setRegionWeather(const ESM::RefId& region, const unsigned int currentWeather,
+            const unsigned int nextWeather, const unsigned int queuedWeather, const float transitionFactor, bool force)
+            = 0;
+        virtual bool getWeatherCreationState() = 0;
+        virtual void setWeatherCreationState(bool state) = 0;
+        virtual void sendWeather() = 0;
+        virtual void updateWeather(float duration, bool paused = false) = 0;
 
         virtual const std::vector<MWWorld::Weather>& getAllWeather() const = 0;
 
@@ -308,6 +324,11 @@ namespace MWBase
         ///< Queues movement for \a ptr (in local space), to be applied in the next call to
         /// doPhysics.
 
+        virtual void setInertialForce(const MWWorld::Ptr& ptr, const osg::Vec3f& force) = 0;
+        virtual void setOnGround(const MWWorld::Ptr& ptr, bool onGround) = 0;
+        virtual void setPhysicsFramerate(float physFramerate) = 0;
+        virtual void PCDropped(const MWWorld::Ptr& item) = 0;
+
         virtual void updateAnimatedCollisionShape(const MWWorld::Ptr& ptr) = 0;
 
         virtual const MWPhysics::RayCastingInterface* getRayCasting() const = 0;
@@ -383,6 +404,11 @@ namespace MWBase
         /// @param state see MWClass::setDoorState
         /// @note throws an exception when invoked on a teleport door
         virtual void activateDoor(const MWWorld::Ptr& door, MWWorld::DoorState state) = 0;
+        virtual void saveDoorState(const MWWorld::Ptr& door, MWWorld::DoorState state) = 0;
+        virtual bool isCellActive(const ESM::Cell& cell) = 0;
+        virtual void unloadCell(const ESM::Cell& cell) = 0;
+        virtual void unloadActiveCells() = 0;
+        virtual void clearCellStore(const ESM::Cell& cell) = 0;
 
         virtual void getActorsStandingOn(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& actors)
             = 0; ///< get a list of actors standing on \a object

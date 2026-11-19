@@ -6,12 +6,9 @@
 include(LibFindMacros)
 
 libfind_pkg_detect(LuaJit luajit
-        FIND_PATH luajit.h lua.h
-            PATHS "D:/Users/lucyfurnice/Desktop/Lua-5.5.1/Lua-5.5.1"
+        FIND_PATH luajit.h
             PATH_SUFFIXES luajit luajit-2.1
-        FIND_LIBRARY luajit-5.1 luajit lua55
-            PATHS "D:/Users/lucyfurnice/Desktop/Lua-5.5.1/x64/Release/lib"
-                  "D:/Users/lucyfurnice/Desktop/Lua-5.5.1/x64/Debug/lib"
+        FIND_LIBRARY luajit-5.1 luajit lua51
         )
 
 libfind_process(LuaJit)

@@ -37,7 +37,7 @@ namespace MWClass
 
         MWWorld::Ptr copyToCellImpl(const MWWorld::ConstPtr& ptr, MWWorld::CellStore& cell) const override;
 
-        bool canBeHarvested(const MWWorld::ConstPtr& ptr) const;
+        bool canBeHarvested(const MWWorld::ConstPtr& ptr) const override;
 
     public:
         void insertObjectRendering(const MWWorld::Ptr& ptr, const std::string& model,

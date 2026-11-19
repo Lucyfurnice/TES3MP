@@ -524,3 +524,16 @@ bool MWWorld::WorldModel::readRecord(ESM::ESMReader& reader, uint32_t type)
 
     return false;
 }
+
+void MWWorld::WorldModel::clearCell(const ESM::Cell& cell)
+{
+    mIdCache.clear();
+    mIdCacheIndex = 0;
+
+    if (cell.isExterior())
+        mExteriors.erase(ESM::ExteriorCellLocation(cell.getGridX(), cell.getGridY(), ESM::Cell::sDefaultWorldspaceId));
+    else
+        mInteriors.erase(cell.mName);
+
+    mCells.erase(cell.mId);
+}

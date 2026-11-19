@@ -36,6 +36,7 @@ namespace luabridge {
 // These are for Lua versions prior to 5.2.0.
 //
 #if LUA_VERSION_NUM < 502
+#ifndef lua_absindex
 inline int lua_absindex (lua_State* L, int idx)
 {
   if (idx > LUA_REGISTRYINDEX && idx < 0)
@@ -43,14 +44,18 @@ inline int lua_absindex (lua_State* L, int idx)
   else
     return idx;
 }
+#endif
 
+#ifndef lua_rawgetp
 inline void lua_rawgetp (lua_State* L, int idx, void const* p)
 {
   idx = lua_absindex (L, idx);
   lua_pushlightuserdata (L, const_cast <void*> (p));
   lua_rawget (L,idx);
 }
+#endif
 
+#ifndef lua_rawsetp
 inline void lua_rawsetp (lua_State* L, int idx, void const* p)
 {
   idx = lua_absindex (L, idx);
@@ -59,6 +64,7 @@ inline void lua_rawsetp (lua_State* L, int idx, void const* p)
   lua_insert (L, -2);
   lua_rawset (L, idx);
 }
+#endif
 
 #define LUA_OPEQ 1
 #define LUA_OPLT 2

@@ -105,6 +105,7 @@ namespace MWMechanics
 
         int countDeaths(const ESM::RefId& id) const;
         ///< Return the number of deaths for actors with the given ID.
+        void setDeaths(const ESM::RefId& id, int number);
 
         bool isAttackPreparing(const MWWorld::Ptr& ptr) const;
         bool isRunning(const MWWorld::Ptr& ptr) const;
@@ -160,6 +161,7 @@ namespace MWMechanics
         bool isCastingSpell(const MWWorld::Ptr& ptr) const;
         bool isReadyToBlock(const MWWorld::Ptr& ptr) const;
         bool isAttackingOrSpell(const MWWorld::Ptr& ptr) const;
+        void setAttackingOrSpell(const MWWorld::Ptr& ptr, bool state) const;
 
         int getGreetingTimer(const MWWorld::Ptr& ptr) const;
         float getAngleToPlayer(const MWWorld::Ptr& ptr) const;

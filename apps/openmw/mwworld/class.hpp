@@ -382,6 +382,8 @@ namespace MWWorld
         virtual void setBaseAISetting(const ESM::RefId& id, MWMechanics::AiSetting setting, int value) const;
 
         virtual void modifyBaseInventory(const ESM::RefId& actorId, const ESM::RefId& itemId, int amount) const;
+
+        virtual bool canBeHarvested(const MWWorld::ConstPtr& ptr) const { return false; }
     };
 }
 
