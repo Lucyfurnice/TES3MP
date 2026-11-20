@@ -1,0 +1,267 @@
+name: Build and Release TES3MP (OpenMW 0.51.0)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: CMake build type
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Release
+          - RelWithDebInfo
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Windows x64 (${{ inputs.build_type || 'Release' }})
+    runs-on: windows-2022
+
+    env:
+      BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+      VCPKG_ARCHIVE: FAILEDTODOWNLOAD
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version & commit metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $shortSha = "${{ github.sha }}".Substring(0, 10)
+          "short_sha=$shortSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tagName = "${{ github.ref_name }}"
+          } else {
+            $tagName = "v0.51.0-$shortSha"
+          }
+          "release_tag=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Load OpenMW MSVC dependency versions
+        shell: bash
+        run: |
+          sed '/^\s*#/d; /^\s*$/d' "${{ github.workspace }}/CI/deps_versions.msvc.sh" >> "$GITHUB_ENV"
+
+      - name: Create dependency directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/deps" | Out-Null
+
+      - name: Cache prebuilt vcpkg dependencies
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}
+          key: vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}
+
+      - name: Download and extract prebuilt vcpkg packages
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ github.workspace }}/deps
+        shell: pwsh
+        run: |
+          $manifest = "vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}-manifest.txt"
+          curl.exe --fail --retry 3 -L -o "$manifest" "https://gitlab.com/OpenMW/openmw-deps/-/raw/main/windows/$manifest"
+          $lines = Get-Content "$manifest"
+          $url = $lines[0]
+          $split = -split $lines[1]
+          $expectedHash = $split[0]
+          $archiveFile = $split[1]
+          curl.exe --fail --retry 3 -L -o "$archiveFile" "$url"
+          $actualHash = (Get-FileHash "$archiveFile" -Algorithm SHA512).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw "vcpkg archive SHA-512 mismatch: expected $expectedHash, got $actualHash"
+          }
+          7z x -y "-ovcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}" "$archiveFile"
+          Remove-Item -Force "$archiveFile", "$manifest"
+
+      - name: Setup MSVC x64 developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Cache CrabNet build
+        id: crabnet-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/CrabNet
+          key: crabnet-tes3mp-win64-${{ env.BUILD_TYPE }}-v1
+
+      - name: Clone and build CrabNet (RakNetLibStatic)
+        if: steps.crabnet-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $crabDir = "${{ github.workspace }}/deps/CrabNet"
+          if (Test-Path $crabDir) { Remove-Item -Recurse -Force $crabDir }
+          git clone --depth 1 https://github.com/TES3MP/CrabNet.git "$crabDir"
+          cmake -S "$crabDir" -B "$crabDir/build" -G Ninja `
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
+            -DCRABNET_ENABLE_DLL=OFF `
+            -DCRABNET_ENABLE_STATIC=ON `
+            -DCRABNET_ENABLE_SAMPLES=OFF
+          cmake --build "$crabDir/build" --target RakNetLibStatic -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Configure TES3MP (OpenMW 0.51.0)
+        shell: pwsh
+        run: |
+          $vcpkgRoot = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}"
+          $crabDir = "${{ github.workspace }}/deps/CrabNet"
+          $raknetLib = Get-ChildItem -Path "$crabDir/build" -Recurse -Filter "RakNetLibStatic.lib" | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $raknetLib) {
+            throw "Failed to locate RakNetLibStatic.lib under $crabDir/build"
+          }
+          $env:RAKNET_ROOT = $crabDir
+
+          cmake -S "${{ github.workspace }}" -B "${{ github.workspace }}/build" -G Ninja `
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
+            -DLuaJit_INCLUDE_DIR="$vcpkgRoot/installed/x64-windows/include/luajit" `
+            -DLuaJit_LIBRARY="$vcpkgRoot/installed/x64-windows/lib/lua51.lib" `
+            -DRakNet_INCLUDES="$crabDir/include" `
+            -DRakNet_LIBRARY_RELEASE="$raknetLib" `
+            -DRakNet_LIBRARY_DEBUG="$raknetLib" `
+            -DBUILD_OPENMW=ON `
+            -DBUILD_OPENMW_MP=ON `
+            -DBUILD_LAUNCHER=OFF `
+            -DBUILD_OPENCS=OFF `
+            -DBUILD_WIZARD=OFF `
+            -DBUILD_BROWSER=OFF `
+            -DBUILD_MASTER=OFF `
+            -DBUILD_BSATOOL=OFF `
+            -DBUILD_ESMTOOL=OFF `
+            -DBUILD_ESSIMPORTER=OFF `
+            -DBUILD_MWINIIMPORTER=OFF `
+            -DBUILD_NAVMESHTOOL=OFF `
+            -DBUILD_BULLETOBJECTTOOL=OFF `
+            -DBUILD_COMPONENTS_TESTS=OFF `
+            -DBUILD_OPENMW_TESTS=OFF `
+            -DBUILD_OPENCS_TESTS=OFF `
+            -DBUILD_BENCHMARKS=OFF `
+            -DOPENMW_USE_SYSTEM_SQLITE3=OFF `
+            -DOPENMW_USE_SYSTEM_YAML_CPP=OFF `
+            -DUSE_LUAJIT=ON
+
+      - name: Build openmw and tes3mp-server
+        shell: pwsh
+        run: |
+          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Stage binaries, resources, and runtime DLLs
+        shell: pwsh
+        run: |
+          $vcpkgBin = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}/installed/x64-windows/bin"
+          $buildDir = "${{ github.workspace }}/build"
+          $distDir = "${{ github.workspace }}/dist"
+          New-Item -ItemType Directory -Force -Path "$distDir" | Out-Null
+
+          Copy-Item "$buildDir/openmw.exe", "$buildDir/tes3mp-server.exe" -Destination "$distDir"
+          Copy-Item -Recurse -Force "$buildDir/resources" -Destination "$distDir/resources"
+
+          $configs = @(
+            "defaults.bin",
+            "gamecontrollerdb.txt",
+            "openmw.cfg",
+            "settings-default.cfg",
+            "tes3mp-client-default.cfg",
+            "tes3mp-server-default.cfg"
+          )
+          foreach ($cfg in $configs) {
+            $src = Join-Path $buildDir $cfg
+            if (Test-Path $src) {
+              Copy-Item $src -Destination $distDir
+            }
+          }
+
+          Copy-Item "$vcpkgBin/*.dll" -Destination "$distDir" -ErrorAction SilentlyContinue
+          if (Test-Path "$vcpkgBin/Release/MyGUIEngine.dll") {
+            Copy-Item "$vcpkgBin/Release/MyGUIEngine.dll" -Destination "$distDir"
+          }
+          if (Test-Path "$vcpkgBin/osgPlugins-3.6.5") {
+            New-Item -ItemType Directory -Force -Path "$distDir/osgPlugins-3.6.5" | Out-Null
+            Copy-Item "$vcpkgBin/osgPlugins-3.6.5/*.dll" -Destination "$distDir/osgPlugins-3.6.5"
+          }
+
+      - name: Package archive & generate SHA-256 checksums
+        id: package
+        shell: pwsh
+        run: |
+          $shortSha = "${{ steps.meta.outputs.short_sha }}"
+          $distDir = "${{ github.workspace }}/dist"
+          $outDir = "${{ github.workspace }}/release_assets"
+          New-Item -ItemType Directory -Force -Path "$outDir" | Out-Null
+
+          $archiveName = "tes3mp-openmw-0.51.0-win64-$shortSha.zip"
+          $archivePath = Join-Path $outDir $archiveName
+          Compress-Archive -Path "$distDir/*" -DestinationPath $archivePath -Force
+
+          $openmwHash = (Get-FileHash "$distDir/openmw.exe" -Algorithm SHA256).Hash
+          $serverHash = (Get-FileHash "$distDir/tes3mp-server.exe" -Algorithm SHA256).Hash
+          $archiveHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash
+
+          @(
+            "$archiveHash  $archiveName"
+            "$openmwHash  openmw.exe"
+            "$serverHash  tes3mp-server.exe"
+          ) | Out-File -FilePath "$outDir/SHA256SUMS.txt" -Encoding utf8
+
+          $bodyTemplate = @'
+          ## TES3MP on OpenMW 0.51.0 (`__SHORT_SHA__`)
+
+          - **Commit:** `__FULL_SHA__`
+          - **Build Type:** `__BUILD_TYPE__` (Windows x64)
+          - **Targets Built:** `openmw`, `tes3mp-server`
+
+          ### SHA-256 Checksums
+          | Artifact | SHA-256 |
+          | :--- | :--- |
+          | `__ARCHIVE_NAME__` | `__ARCHIVE_HASH__` |
+          | `openmw.exe` | `__OPENMW_HASH__` |
+          | `tes3mp-server.exe` | `__SERVER_HASH__` |
+          '@
+          $body = $bodyTemplate.
+            Replace('__SHORT_SHA__', $shortSha).
+            Replace('__FULL_SHA__', '${{ github.sha }}').
+            Replace('__BUILD_TYPE__', '${{ env.BUILD_TYPE }}').
+            Replace('__ARCHIVE_NAME__', $archiveName).
+            Replace('__ARCHIVE_HASH__', $archiveHash).
+            Replace('__OPENMW_HASH__', $openmwHash).
+            Replace('__SERVER_HASH__', $serverHash)
+          $body | Out-File -FilePath "${{ github.workspace }}/RELEASE_BODY.md" -Encoding utf8
+
+          "archive_name=$archiveName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload workflow build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tes3mp-openmw-0.51.0-win64-${{ steps.meta.outputs.short_sha }}
+          path: ${{ github.workspace }}/release_assets/*
+
+      - name: Publish GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          name: TES3MP OpenMW 0.51.0 (${{ steps.meta.outputs.short_sha }})
+          body_path: ${{ github.workspace }}/RELEASE_BODY.md
+          prerelease: false
+          draft: false
+          make_latest: true
+          files: |
+            ${{ github.workspace }}/release_assets/${{ steps.package.outputs.archive_name }}
+            ${{ github.workspace }}/release_assets/SHA256SUMS.txt
