@@ -83,6 +83,38 @@ jobs:
           7z x -y "-ovcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}" "$archiveFile"
           Remove-Item -Force "$archiveFile", "$manifest"
 
+      - name: Cache Qt (${{ env.QT_VER }})
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64
+          key: qt-tes3mp-win64-${{ env.QT_VER }}-msvc2019_64-v1
+
+      - name: Install Qt (${{ env.QT_VER }}) with aqt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ github.workspace }}/deps
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/deps/Qt" | Out-Null
+          Set-Location "${{ github.workspace }}/deps/Qt"
+          curl.exe --fail --retry 3 -L -o aqt_x64.exe https://github.com/miurahr/aqtinstall/releases/download/v3.1.15/aqt_x64.exe
+          .\aqt_x64.exe install-qt windows desktop "${{ env.QT_VER }}" win64_msvc2019_64
+          Remove-Item -Force aqt_x64.exe
+
+      - name: Ensure Boost.Asio headers for tes3mp-master
+        shell: pwsh
+        run: |
+          $vcpkgInc = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}/installed/x64-windows/include"
+          if (-not (Test-Path "$vcpkgInc/boost/asio.hpp")) {
+            $verLine = Select-String -Path "$vcpkgInc/boost/version.hpp" -Pattern '#define BOOST_LIB_VERSION "([0-9]+)_([0-9]+)"'
+            $boostTag = "boost-$($verLine.Matches[0].Groups[1].Value).$($verLine.Matches[0].Groups[2].Value).0"
+            $asioTmp = "${{ github.workspace }}/deps/boost-asio-src"
+            if (Test-Path $asioTmp) { Remove-Item -Recurse -Force $asioTmp }
+            git clone --depth 1 --branch $boostTag https://github.com/boostorg/asio.git "$asioTmp"
+            Copy-Item -Recurse -Force "$asioTmp/include/boost/*" "$vcpkgInc/boost/"
+            Remove-Item -Recurse -Force $asioTmp
+          }
+
       - name: Setup MSVC x64 developer environment
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -115,6 +147,7 @@ jobs:
         shell: pwsh
         run: |
           $vcpkgRoot = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}"
+          $qtDir = "${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64"
           $crabDir = "${{ github.workspace }}/deps/CrabNet"
           $raknetLib = Get-ChildItem -Path "$crabDir/build" -Recurse -Filter "RakNetLibStatic.lib" | Select-Object -First 1 -ExpandProperty FullName
           if (-not $raknetLib) {
@@ -125,6 +158,7 @@ jobs:
           cmake -S "${{ github.workspace }}" -B "${{ github.workspace }}/build" -G Ninja `
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_PREFIX_PATH="$qtDir" `
             -DLuaJit_INCLUDE_DIR="$vcpkgRoot/installed/x64-windows/include/luajit" `
             -DLuaJit_LIBRARY="$vcpkgRoot/installed/x64-windows/lib/lua51.lib" `
             -DRakNet_INCLUDES="$crabDir/include" `
@@ -132,11 +166,11 @@ jobs:
             -DRakNet_LIBRARY_DEBUG="$raknetLib" `
             -DBUILD_OPENMW=ON `
             -DBUILD_OPENMW_MP=ON `
-            -DBUILD_LAUNCHER=OFF `
-            -DBUILD_OPENCS=OFF `
-            -DBUILD_WIZARD=OFF `
-            -DBUILD_BROWSER=OFF `
-            -DBUILD_MASTER=OFF `
+            -DBUILD_LAUNCHER=ON `
+            -DBUILD_OPENCS=ON `
+            -DBUILD_WIZARD=ON `
+            -DBUILD_BROWSER=ON `
+            -DBUILD_MASTER=ON `
             -DBUILD_BSATOOL=OFF `
             -DBUILD_ESMTOOL=OFF `
             -DBUILD_ESSIMPORTER=OFF `
@@ -151,32 +185,46 @@ jobs:
             -DOPENMW_USE_SYSTEM_YAML_CPP=OFF `
             -DUSE_LUAJIT=ON
 
-      - name: Build openmw, tes3mp-server, and unit tests
+      - name: Build TES3MP applications and unit tests
         shell: pwsh
         run: |
-          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server components-tests openmw-tests -j $env:NUMBER_OF_PROCESSORS
+          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs components-tests openmw-tests -j $env:NUMBER_OF_PROCESSORS
 
       - name: Run Unit Tests
         working-directory: build
         shell: pwsh
         run: |
           $vcpkgBin = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}/installed/x64-windows/bin"
-          $env:PATH = "$vcpkgBin;$vcpkgBin/Release;$env:PATH"
+          $qtBin = "${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64/bin"
+          $env:PATH = "$vcpkgBin;$vcpkgBin/Release;$qtBin;$env:PATH"
           ctest --output-on-failure --no-tests=error -j $env:NUMBER_OF_PROCESSORS
 
       - name: Stage binaries, resources, and runtime DLLs
         shell: pwsh
         run: |
           $vcpkgBin = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}/installed/x64-windows/bin"
+          $qtDir = "${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64"
           $buildDir = "${{ github.workspace }}/build"
           $distDir = "${{ github.workspace }}/dist"
           New-Item -ItemType Directory -Force -Path "$distDir" | Out-Null
 
-          Copy-Item "$buildDir/openmw.exe", "$buildDir/tes3mp-server.exe" -Destination "$distDir"
+          $exes = @(
+            "openmw.exe",
+            "tes3mp-server.exe",
+            "tes3mp-browser.exe",
+            "tes3mp-master.exe",
+            "openmw-launcher.exe",
+            "openmw-wizard.exe",
+            "openmw-cs.exe"
+          )
+          foreach ($exe in $exes) {
+            Copy-Item "$buildDir/$exe" -Destination "$distDir"
+          }
           Copy-Item -Recurse -Force "$buildDir/resources" -Destination "$distDir/resources"
 
           $configs = @(
             "defaults.bin",
+            "defaults-cs.bin",
             "gamecontrollerdb.txt",
             "openmw.cfg",
             "settings-default.cfg",
@@ -199,6 +247,23 @@ jobs:
             Copy-Item "$vcpkgBin/osgPlugins-3.6.5/*.dll" -Destination "$distDir/osgPlugins-3.6.5"
           }
 
+          & "$qtDir/bin/windeployqt.exe" --release --no-compiler-runtime --no-translations `
+            "$distDir/tes3mp-browser.exe" `
+            "$distDir/openmw-launcher.exe" `
+            "$distDir/openmw-wizard.exe" `
+            "$distDir/openmw-cs.exe"
+
+          foreach ($qtDll in @("Qt6Core.dll", "Qt6Gui.dll", "Qt6Network.dll", "Qt6OpenGL.dll", "Qt6OpenGLWidgets.dll", "Qt6Svg.dll", "Qt6Widgets.dll")) {
+            $src = "$qtDir/bin/$qtDll"
+            if (Test-Path $src) { Copy-Item -Force $src -Destination "$distDir" }
+          }
+          foreach ($sub in @("platforms", "styles", "imageformats", "iconengines")) {
+            if (Test-Path "$qtDir/plugins/$sub") {
+              New-Item -ItemType Directory -Force -Path "$distDir/$sub" | Out-Null
+              Copy-Item -Force "$qtDir/plugins/$sub/*.dll" -Destination "$distDir/$sub" -ErrorAction SilentlyContinue
+            }
+          }
+
       - name: Package archive & generate SHA-256 checksums
         id: package
         shell: pwsh
@@ -212,15 +277,13 @@ jobs:
           $archivePath = Join-Path $outDir $archiveName
           Compress-Archive -Path "$distDir/*" -DestinationPath $archivePath -Force
 
-          $openmwHash = (Get-FileHash "$distDir/openmw.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          $serverHash = (Get-FileHash "$distDir/tes3mp-server.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           $archiveHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-
-          @(
-            "$archiveHash  $archiveName"
-            "$openmwHash  windows/$archiveName:openmw.exe"
-            "$serverHash  windows/$archiveName:tes3mp-server.exe"
-          ) | Out-File -FilePath "$outDir/SHA256SUMS-windows.txt" -Encoding utf8
+          $hashes = @("$archiveHash  $archiveName")
+          foreach ($exe in @("openmw.exe", "tes3mp-server.exe", "tes3mp-browser.exe", "tes3mp-master.exe", "openmw-launcher.exe", "openmw-wizard.exe", "openmw-cs.exe")) {
+            $exeHash = (Get-FileHash "$distDir/$exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $hashes += "$exeHash  windows/${archiveName}:$exe"
+          }
+          $hashes | Out-File -FilePath "$outDir/SHA256SUMS-windows.txt" -Encoding utf8
 
           "archive_name=$archiveName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -256,7 +319,7 @@ jobs:
         run: |
           if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; else SUDO=""; fi
           $SUDO "${{ github.workspace }}/CI/install_debian_deps.sh" gcc openmw-deps openmw-deps-dynamic
-          $SUDO apt-get install -y --no-install-recommends ninja-build
+          $SUDO apt-get install -y --no-install-recommends ninja-build libboost-dev qt6-translations-l10n
 
       - name: Cache CrabNet
         id: crabnet-cache
@@ -290,11 +353,11 @@ jobs:
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" \
             -DBUILD_OPENMW=ON \
             -DBUILD_OPENMW_MP=ON \
-            -DBUILD_LAUNCHER=OFF \
-            -DBUILD_OPENCS=OFF \
-            -DBUILD_WIZARD=OFF \
-            -DBUILD_BROWSER=OFF \
-            -DBUILD_MASTER=OFF \
+            -DBUILD_LAUNCHER=ON \
+            -DBUILD_OPENCS=ON \
+            -DBUILD_WIZARD=ON \
+            -DBUILD_BROWSER=ON \
+            -DBUILD_MASTER=ON \
             -DBUILD_BSATOOL=OFF \
             -DBUILD_ESMTOOL=OFF \
             -DBUILD_ESSIMPORTER=OFF \
@@ -309,9 +372,9 @@ jobs:
             -DUSE_SYSTEM_TINYXML=ON \
             -DUSE_LUAJIT=ON
 
-      - name: Build openmw, tes3mp-server, and unit tests
+      - name: Build TES3MP applications and unit tests
         run: |
-          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server components-tests openmw-tests -j"$(nproc)"
+          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs components-tests openmw-tests -j"$(nproc)"
 
       - name: Run Unit Tests
         working-directory: build
@@ -325,9 +388,12 @@ jobs:
           out_dir="${{ github.workspace }}/release_assets"
           mkdir -p "$dist_dir" "$out_dir"
 
-          cp "$build_dir/openmw" "$build_dir/tes3mp-server" "$dist_dir/"
+          bins=(openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs)
+          for bin in "${bins[@]}"; do
+            cp "$build_dir/$bin" "$dist_dir/"
+          done
           cp -r "$build_dir/resources" "$dist_dir/resources"
-          for cfg in defaults.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
+          for cfg in defaults.bin defaults-cs.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
             if [ -f "$build_dir/$cfg" ]; then
               cp "$build_dir/$cfg" "$dist_dir/"
             fi
@@ -338,7 +404,7 @@ jobs:
 
           {
             (cd "$out_dir" && sha256sum "$archive_name")
-            (cd "$dist_dir" && sha256sum openmw tes3mp-server)
+            (cd "$dist_dir" && sha256sum "${bins[@]}")
           } > "$out_dir/SHA256SUMS-linux.txt"
 
       - name: Upload Linux release assets
@@ -375,6 +441,17 @@ jobs:
       - name: Install OpenMW macOS dependencies
         run: CI/before_install.macos.sh
 
+      - name: Ensure Boost.Asio headers for tes3mp-master
+        run: |
+          vcpkg_inc="/tmp/openmw-deps/installed/arm64-osx-dynamic/include"
+          if [ ! -f "$vcpkg_inc/boost/asio.hpp" ] && [ -f "$vcpkg_inc/boost/version.hpp" ]; then
+            boost_ver="$(awk -F'"' '/#define BOOST_LIB_VERSION / {gsub(/_/, ".", $2); print "boost-" $2 ".0"}' "$vcpkg_inc/boost/version.hpp")"
+            rm -rf "${{ github.workspace }}/deps/boost-asio-src"
+            git clone --depth 1 --branch "$boost_ver" https://github.com/boostorg/asio.git "${{ github.workspace }}/deps/boost-asio-src"
+            cp -R "${{ github.workspace }}/deps/boost-asio-src/include/boost/"* "$vcpkg_inc/boost/"
+            rm -rf "${{ github.workspace }}/deps/boost-asio-src"
+          fi
+
       - name: Cache CrabNet
         id: crabnet-cache
         uses: actions/cache@v4
@@ -403,11 +480,20 @@ jobs:
       - name: Configure TES3MP (OpenMW 0.51.0)
         env:
           RAKNET_ROOT: ${{ github.workspace }}/deps/CrabNet-install
-        run: CI/before_script.macos.sh
-
-      - name: Build OpenMW and tes3mp-server
         run: |
-          cmake --build "${{ github.workspace }}/build" -j"$(sysctl -n hw.ncpu)"
+          CI/before_script.macos.sh
+          cmake -B "${{ github.workspace }}/build" \
+            -DBUILD_LAUNCHER=ON \
+            -DBUILD_OPENCS=ON \
+            -DBUILD_WIZARD=ON \
+            -DBUILD_BROWSER=ON \
+            -DBUILD_MASTER=ON
+
+      - name: Build TES3MP applications
+        run: |
+          cmake --build "${{ github.workspace }}/build" \
+            --target openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs \
+            -j"$(sysctl -n hw.ncpu)"
 
       - name: Stage macOS archive & generate SHA-256 checksums
         run: |
@@ -420,35 +506,47 @@ jobs:
 
           cmake --install "$build_dir" --prefix "$install_dir"
           cp -R "$install_dir/OpenMW.app" "$dist_dir/"
+          if [ -d "$install_dir/OpenMW-CS.app" ]; then
+            cp -R "$install_dir/OpenMW-CS.app" "$dist_dir/"
+          elif [ -d "$build_dir/OpenMW-CS.app" ]; then
+            cp -R "$build_dir/OpenMW-CS.app" "$dist_dir/"
+          fi
 
-          server_bin=""
-          for candidate in \
-            "$build_dir/tes3mp-server" \
-            "$build_dir/OpenMW.app/Contents/MacOS/tes3mp-server" \
-            "$build_dir/apps/openmw-mp/tes3mp-server" \
-            "$install_dir/OpenMW.app/Contents/MacOS/tes3mp-server"; do
-            if [ -f "$candidate" ]; then
-              server_bin="$candidate"
-              break
+          cli_bins=()
+          for cli_name in tes3mp-server tes3mp-master; do
+            cli_bin=""
+            for candidate in \
+              "$build_dir/$cli_name" \
+              "$build_dir/OpenMW.app/Contents/MacOS/$cli_name" \
+              "$build_dir/apps/openmw-mp/$cli_name" \
+              "$build_dir/apps/master/$cli_name" \
+              "$install_dir/OpenMW.app/Contents/MacOS/$cli_name"; do
+              if [ -f "$candidate" ]; then
+                cli_bin="$candidate"
+                break
+              fi
+            done
+            if [ -z "$cli_bin" ]; then
+              cli_bin="$(find "$build_dir" -maxdepth 4 -name "$cli_name" -type f | head -n 1 || true)"
             fi
+            if [ -z "$cli_bin" ]; then
+              echo "$cli_name binary not found under $build_dir or $install_dir" >&2
+              find "$build_dir" -maxdepth 3 >&2 || true
+              exit 1
+            fi
+            cp "$cli_bin" "$dist_dir/$cli_name"
+            chmod u+w "$dist_dir/$cli_name"
+            cli_bins+=("$dist_dir/$cli_name")
           done
-          if [ -z "$server_bin" ]; then
-            server_bin="$(find "$build_dir" -maxdepth 4 -name tes3mp-server -type f | head -n 1 || true)"
-          fi
-          if [ -z "$server_bin" ]; then
-            echo "tes3mp-server binary not found under $build_dir or $install_dir" >&2
-            find "$build_dir" -maxdepth 3 >&2 || true
-            exit 1
-          fi
-          cp "$server_bin" "$dist_dir/tes3mp-server"
-          chmod u+w "$dist_dir/tes3mp-server"
 
           mkdir -p "$dist_dir/lib"
-          install_name_tool -add_rpath "@executable_path/lib" "$dist_dir/tes3mp-server" 2>/dev/null || true
+          for bin in "${cli_bins[@]}"; do
+            install_name_tool -add_rpath "@executable_path/lib" "$bin" 2>/dev/null || true
+          done
           changed=1
           while [ "$changed" -eq 1 ]; do
             changed=0
-            for target in "$dist_dir/tes3mp-server" "$dist_dir"/lib/*.dylib; do
+            for target in "${cli_bins[@]}" "$dist_dir"/lib/*.dylib; do
               [ -f "$target" ] || continue
               for dep in $(otool -L "$target" | awk 'NR>1 {print $1}' | grep -E '^(/tmp/openmw-deps/|/opt/homebrew/|/usr/local/|@rpath/)' || true); do
                 src="$dep"
@@ -479,7 +577,7 @@ jobs:
               done
             done
           done
-          for target in "$dist_dir"/lib/*.dylib "$dist_dir/tes3mp-server"; do
+          for target in "$dist_dir"/lib/*.dylib "${cli_bins[@]}"; do
             [ -f "$target" ] || continue
             codesign --force --sign - "$target" 2>/dev/null || true
           done
@@ -491,7 +589,7 @@ jobs:
           elif [ -d "$build_dir/resources" ]; then
             cp -R "$build_dir/resources" "$dist_dir/resources"
           fi
-          for cfg in defaults.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
+          for cfg in defaults.bin defaults-cs.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
             if [ -f "$install_dir/OpenMW.app/Contents/Resources/$cfg" ]; then
               cp "$install_dir/OpenMW.app/Contents/Resources/$cfg" "$dist_dir/"
             elif [ -f "$build_dir/$cfg" ]; then
@@ -504,7 +602,21 @@ jobs:
 
           {
             (cd "$out_dir" && shasum -a 256 "$archive_name")
-            (cd "$dist_dir" && shasum -a 256 OpenMW.app/Contents/MacOS/openmw tes3mp-server)
+            (
+              cd "$dist_dir"
+              for bin in \
+                OpenMW.app/Contents/MacOS/openmw \
+                OpenMW-CS.app/Contents/MacOS/OpenMW-CS \
+                OpenMW.app/Contents/MacOS/openmw-launcher \
+                OpenMW.app/Contents/MacOS/openmw-wizard \
+                OpenMW.app/Contents/MacOS/tes3mp-browser \
+                tes3mp-server \
+                tes3mp-master; do
+                if [ -f "$bin" ]; then
+                  shasum -a 256 "$bin"
+                fi
+              done
+            )
           } > "$out_dir/SHA256SUMS-macos.txt"
 
       - name: Upload macOS release assets
@@ -555,7 +667,7 @@ jobs:
             echo ""
             echo "- **Commit:** \`${GITHUB_SHA}\`"
             echo "- **Build Type:** \`${{ inputs.build_type || 'Release' }}\`"
-            echo "- **Targets Built:** \`openmw\`, \`tes3mp-server\` (Windows x64 \`.zip\`, Linux x64 \`.tar.gz\`, macOS arm64 \`.tar.gz\`)"
+            echo "- **Targets Built:** \`openmw\`, \`tes3mp-server\`, \`tes3mp-browser\`, \`tes3mp-master\`, \`openmw-launcher\`, \`openmw-wizard\`, \`openmw-cs\` (Windows x64 \`.zip\`, Linux x64 \`.tar.gz\`, macOS arm64 \`.tar.gz\`)"
             echo ""
             echo "### SHA-256 Checksums"
             echo '```'
