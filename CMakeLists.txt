@@ -751,8 +751,13 @@ if ((BUILD_OPENMW OR BUILD_OPENCS) AND BUILD_NIFTEST)
     add_subdirectory(apps/niftest)
 endif()
 
+if (BUILD_COMPONENTS_TESTS OR BUILD_OPENCS_TESTS OR BUILD_OPENMW_TESTS)
+    enable_testing()
+endif()
+
 if (BUILD_COMPONENTS_TESTS)
     add_subdirectory(apps/components_tests)
+    add_test(NAME components-tests COMMAND components-tests WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
 
 if (BUILD_BENCHMARKS)
@@ -769,10 +774,12 @@ endif()
 
 if (BUILD_OPENCS_TESTS)
     add_subdirectory(apps/opencs_tests)
+    add_test(NAME openmw-cs-tests COMMAND openmw-cs-tests WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
 
 if (BUILD_OPENMW_TESTS)
     add_subdirectory(apps/openmw_tests)
+    add_test(NAME openmw-tests COMMAND openmw-tests WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
 
 if (WIN32)

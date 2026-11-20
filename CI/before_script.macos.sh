@@ -151,6 +151,17 @@ if [[ -n $VERBOSE ]]; then
         ..
 fi
 
+if [[ -n "${RAKNET_ROOT}" && -d "${RAKNET_ROOT}/include" ]]; then
+    CMAKE_CONF_OPTS+=(
+        -D RakNet_INCLUDES="${RAKNET_ROOT}/include"
+    )
+    if [[ -f "${RAKNET_ROOT}/lib/libRakNetLibStatic.a" ]]; then
+        CMAKE_CONF_OPTS+=(
+            -D RakNet_LIBRARY_RELEASE="${RAKNET_ROOT}/lib/libRakNetLibStatic.a"
+        )
+    fi
+fi
+
 cmake \
     "${CMAKE_CONF_OPTS[@]}" \
     "${BUILD_OPTS[@]}" \

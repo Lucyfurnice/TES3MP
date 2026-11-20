@@ -2,15 +2,8 @@ name: Build and Release TES3MP (OpenMW 0.51.0)
 
 on:
   push:
-    branches:
-      - main
-      - master
     tags:
       - "v*"
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
     inputs:
       build_type:
@@ -36,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -111,6 +104,7 @@ jobs:
           if (Test-Path $crabDir) { Remove-Item -Recurse -Force $crabDir }
           git clone --depth 1 https://github.com/TES3MP/CrabNet.git "$crabDir"
           cmake -S "$crabDir" -B "$crabDir/build" -G Ninja `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
             -DCRABNET_ENABLE_DLL=OFF `
             -DCRABNET_ENABLE_STATIC=ON `
@@ -149,18 +143,26 @@ jobs:
             -DBUILD_MWINIIMPORTER=OFF `
             -DBUILD_NAVMESHTOOL=OFF `
             -DBUILD_BULLETOBJECTTOOL=OFF `
-            -DBUILD_COMPONENTS_TESTS=OFF `
-            -DBUILD_OPENMW_TESTS=OFF `
+            -DBUILD_COMPONENTS_TESTS=ON `
+            -DBUILD_OPENMW_TESTS=ON `
             -DBUILD_OPENCS_TESTS=OFF `
             -DBUILD_BENCHMARKS=OFF `
             -DOPENMW_USE_SYSTEM_SQLITE3=OFF `
             -DOPENMW_USE_SYSTEM_YAML_CPP=OFF `
             -DUSE_LUAJIT=ON
 
-      - name: Build openmw and tes3mp-server
+      - name: Build openmw, tes3mp-server, and unit tests
         shell: pwsh
         run: |
-          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server -j $env:NUMBER_OF_PROCESSORS
+          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server components-tests openmw-tests -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Run Unit Tests
+        working-directory: build
+        shell: pwsh
+        run: |
+          $vcpkgBin = "${{ github.workspace }}/deps/vcpkg-x64-windows-2022-${{ env.VCPKG_TAG }}/installed/x64-windows/bin"
+          $env:PATH = "$vcpkgBin;$vcpkgBin/Release;$env:PATH"
+          ctest --output-on-failure --no-tests=error -j $env:NUMBER_OF_PROCESSORS
 
       - name: Stage binaries, resources, and runtime DLLs
         shell: pwsh
@@ -210,50 +212,390 @@ jobs:
           $archivePath = Join-Path $outDir $archiveName
           Compress-Archive -Path "$distDir/*" -DestinationPath $archivePath -Force
 
-          $openmwHash = (Get-FileHash "$distDir/openmw.exe" -Algorithm SHA256).Hash
-          $serverHash = (Get-FileHash "$distDir/tes3mp-server.exe" -Algorithm SHA256).Hash
-          $archiveHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash
+          $openmwHash = (Get-FileHash "$distDir/openmw.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $serverHash = (Get-FileHash "$distDir/tes3mp-server.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $archiveHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
           @(
             "$archiveHash  $archiveName"
-            "$openmwHash  openmw.exe"
-            "$serverHash  tes3mp-server.exe"
-          ) | Out-File -FilePath "$outDir/SHA256SUMS.txt" -Encoding utf8
-
-          $bodyTemplate = @'
-          ## TES3MP on OpenMW 0.51.0 (`__SHORT_SHA__`)
-
-          - **Commit:** `__FULL_SHA__`
-          - **Build Type:** `__BUILD_TYPE__` (Windows x64)
-          - **Targets Built:** `openmw`, `tes3mp-server`
-
-          ### SHA-256 Checksums
-          | Artifact | SHA-256 |
-          | :--- | :--- |
-          | `__ARCHIVE_NAME__` | `__ARCHIVE_HASH__` |
-          | `openmw.exe` | `__OPENMW_HASH__` |
-          | `tes3mp-server.exe` | `__SERVER_HASH__` |
-          '@
-          $body = $bodyTemplate.
-            Replace('__SHORT_SHA__', $shortSha).
-            Replace('__FULL_SHA__', '${{ github.sha }}').
-            Replace('__BUILD_TYPE__', '${{ env.BUILD_TYPE }}').
-            Replace('__ARCHIVE_NAME__', $archiveName).
-            Replace('__ARCHIVE_HASH__', $archiveHash).
-            Replace('__OPENMW_HASH__', $openmwHash).
-            Replace('__SERVER_HASH__', $serverHash)
-          $body | Out-File -FilePath "${{ github.workspace }}/RELEASE_BODY.md" -Encoding utf8
+            "$openmwHash  windows/$archiveName:openmw.exe"
+            "$serverHash  windows/$archiveName:tes3mp-server.exe"
+          ) | Out-File -FilePath "$outDir/SHA256SUMS-windows.txt" -Encoding utf8
 
           "archive_name=$archiveName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Upload workflow build artifact
+      - name: Upload Windows release assets
         uses: actions/upload-artifact@v4
         with:
-          name: tes3mp-openmw-0.51.0-win64-${{ steps.meta.outputs.short_sha }}
-          path: ${{ github.workspace }}/release_assets/*
+          name: release-windows-x64
+          path: |
+            ${{ github.workspace }}/release_assets/*.zip
+            ${{ github.workspace }}/release_assets/SHA256SUMS-windows.txt
+
+  build-linux:
+    name: Linux x64 (${{ inputs.build_type || 'Release' }})
+    runs-on: ubuntu-latest
+
+    env:
+      BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute version metadata
+        id: meta
+        run: |
+          short_sha="${GITHUB_SHA:0:10}"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Install OpenMW dependencies
+        run: |
+          if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; else SUDO=""; fi
+          $SUDO "${{ github.workspace }}/CI/install_debian_deps.sh" gcc openmw-deps openmw-deps-dynamic
+          $SUDO apt-get install -y --no-install-recommends ninja-build
+
+      - name: Cache CrabNet
+        id: crabnet-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/CrabNet-install
+          key: crabnet-tes3mp-linux-${{ env.BUILD_TYPE }}-v1
+
+      - name: Clone, build, and install CrabNet
+        if: steps.crabnet-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/deps"
+          rm -rf "${{ github.workspace }}/deps/CrabNet-src" "${{ github.workspace }}/deps/CrabNet-install"
+          git clone --depth 1 https://github.com/TES3MP/CrabNet.git "${{ github.workspace }}/deps/CrabNet-src"
+          cmake -S "${{ github.workspace }}/deps/CrabNet-src" -B "${{ github.workspace }}/deps/CrabNet-src/build" -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/CrabNet-install" \
+            -DCMAKE_CXX_FLAGS="-include cstdint" \
+            -DCRABNET_ENABLE_DLL=OFF \
+            -DCRABNET_ENABLE_STATIC=ON \
+            -DCRABNET_ENABLE_SAMPLES=OFF
+          cmake --build "${{ github.workspace }}/deps/CrabNet-src/build" --target RakNetLibStatic -j"$(nproc)"
+          cmake --install "${{ github.workspace }}/deps/CrabNet-src/build"
+
+      - name: Configure TES3MP (OpenMW 0.51.0)
+        env:
+          RAKNET_ROOT: ${{ github.workspace }}/deps/CrabNet-install
+        run: |
+          cmake -S "${{ github.workspace }}" -B "${{ github.workspace }}/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" \
+            -DBUILD_OPENMW=ON \
+            -DBUILD_OPENMW_MP=ON \
+            -DBUILD_LAUNCHER=OFF \
+            -DBUILD_OPENCS=OFF \
+            -DBUILD_WIZARD=OFF \
+            -DBUILD_BROWSER=OFF \
+            -DBUILD_MASTER=OFF \
+            -DBUILD_BSATOOL=OFF \
+            -DBUILD_ESMTOOL=OFF \
+            -DBUILD_ESSIMPORTER=OFF \
+            -DBUILD_MWINIIMPORTER=OFF \
+            -DBUILD_NAVMESHTOOL=OFF \
+            -DBUILD_BULLETOBJECTTOOL=OFF \
+            -DBUILD_COMPONENTS_TESTS=ON \
+            -DBUILD_OPENMW_TESTS=ON \
+            -DBUILD_OPENCS_TESTS=OFF \
+            -DBUILD_BENCHMARKS=OFF \
+            -DOPENMW_USE_SYSTEM_RECASTNAVIGATION=ON \
+            -DUSE_SYSTEM_TINYXML=ON \
+            -DUSE_LUAJIT=ON
+
+      - name: Build openmw, tes3mp-server, and unit tests
+        run: |
+          cmake --build "${{ github.workspace }}/build" --target openmw tes3mp-server components-tests openmw-tests -j"$(nproc)"
+
+      - name: Run Unit Tests
+        working-directory: build
+        run: ctest --output-on-failure --no-tests=error -j$(nproc)
+
+      - name: Stage archive & generate SHA-256 checksums
+        run: |
+          short_sha="${{ steps.meta.outputs.short_sha }}"
+          build_dir="${{ github.workspace }}/build"
+          dist_dir="${{ github.workspace }}/dist"
+          out_dir="${{ github.workspace }}/release_assets"
+          mkdir -p "$dist_dir" "$out_dir"
+
+          cp "$build_dir/openmw" "$build_dir/tes3mp-server" "$dist_dir/"
+          cp -r "$build_dir/resources" "$dist_dir/resources"
+          for cfg in defaults.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
+            if [ -f "$build_dir/$cfg" ]; then
+              cp "$build_dir/$cfg" "$dist_dir/"
+            fi
+          done
+
+          archive_name="tes3mp-openmw-0.51.0-linux-x64-${short_sha}.tar.gz"
+          tar -C "$dist_dir" -czf "$out_dir/$archive_name" .
+
+          {
+            (cd "$out_dir" && sha256sum "$archive_name")
+            (cd "$dist_dir" && sha256sum openmw tes3mp-server)
+          } > "$out_dir/SHA256SUMS-linux.txt"
+
+      - name: Upload Linux release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x64
+          path: |
+            ${{ github.workspace }}/release_assets/*.tar.gz
+            ${{ github.workspace }}/release_assets/SHA256SUMS-linux.txt
+
+  build-macos:
+    name: macOS arm64 (${{ inputs.build_type || 'Release' }})
+    runs-on: macos-latest
+
+    env:
+      BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+      CMAKE_BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+      HOMEBREW_NO_INSTALL_UPGRADE: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute version metadata
+        id: meta
+        run: |
+          short_sha="${GITHUB_SHA:0:10}"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Install OpenMW macOS dependencies
+        run: CI/before_install.macos.sh
+
+      - name: Cache CrabNet
+        id: crabnet-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/CrabNet-install
+          key: crabnet-tes3mp-macos-latest-${{ env.BUILD_TYPE }}-v1
+
+      - name: Clone, build, and install CrabNet
+        if: steps.crabnet-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/deps"
+          rm -rf "${{ github.workspace }}/deps/CrabNet-src" "${{ github.workspace }}/deps/CrabNet-install"
+          git clone --depth 1 https://github.com/TES3MP/CrabNet.git "${{ github.workspace }}/deps/CrabNet-src"
+          cmake -S "${{ github.workspace }}/deps/CrabNet-src" -B "${{ github.workspace }}/deps/CrabNet-src/build" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/CrabNet-install" \
+            -DCMAKE_CXX_FLAGS="-stdlib=libc++ -include stdlib.h -include cstdint" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.8 \
+            -DCRABNET_ENABLE_DLL=OFF \
+            -DCRABNET_ENABLE_STATIC=ON \
+            -DCRABNET_ENABLE_SAMPLES=OFF
+          cmake --build "${{ github.workspace }}/deps/CrabNet-src/build" --target RakNetLibStatic -j"$(sysctl -n hw.ncpu)"
+          cmake --install "${{ github.workspace }}/deps/CrabNet-src/build"
+
+      - name: Configure TES3MP (OpenMW 0.51.0)
+        env:
+          RAKNET_ROOT: ${{ github.workspace }}/deps/CrabNet-install
+        run: CI/before_script.macos.sh
+
+      - name: Build OpenMW and tes3mp-server
+        run: |
+          cmake --build "${{ github.workspace }}/build" -j"$(sysctl -n hw.ncpu)"
+
+      - name: Stage macOS archive & generate SHA-256 checksums
+        run: |
+          short_sha="${{ steps.meta.outputs.short_sha }}"
+          build_dir="${{ github.workspace }}/build"
+          install_dir="${{ github.workspace }}/dist-install"
+          dist_dir="${{ github.workspace }}/dist"
+          out_dir="${{ github.workspace }}/release_assets"
+          mkdir -p "$install_dir" "$dist_dir" "$out_dir"
+
+          cmake --install "$build_dir" --prefix "$install_dir"
+          cp -R "$install_dir/OpenMW.app" "$dist_dir/"
+
+          server_bin=""
+          for candidate in \
+            "$build_dir/tes3mp-server" \
+            "$build_dir/OpenMW.app/Contents/MacOS/tes3mp-server" \
+            "$build_dir/apps/openmw-mp/tes3mp-server" \
+            "$install_dir/OpenMW.app/Contents/MacOS/tes3mp-server"; do
+            if [ -f "$candidate" ]; then
+              server_bin="$candidate"
+              break
+            fi
+          done
+          if [ -z "$server_bin" ]; then
+            server_bin="$(find "$build_dir" -maxdepth 4 -name tes3mp-server -type f | head -n 1 || true)"
+          fi
+          if [ -z "$server_bin" ]; then
+            echo "tes3mp-server binary not found under $build_dir or $install_dir" >&2
+            find "$build_dir" -maxdepth 3 >&2 || true
+            exit 1
+          fi
+          cp "$server_bin" "$dist_dir/tes3mp-server"
+          chmod u+w "$dist_dir/tes3mp-server"
+
+          mkdir -p "$dist_dir/lib"
+          install_name_tool -add_rpath "@executable_path/lib" "$dist_dir/tes3mp-server" 2>/dev/null || true
+          changed=1
+          while [ "$changed" -eq 1 ]; do
+            changed=0
+            for target in "$dist_dir/tes3mp-server" "$dist_dir"/lib/*.dylib; do
+              [ -f "$target" ] || continue
+              for dep in $(otool -L "$target" | awk 'NR>1 {print $1}' | grep -E '^(/tmp/openmw-deps/|/opt/homebrew/|/usr/local/|@rpath/)' || true); do
+                src="$dep"
+                case "$dep" in
+                  @rpath/*)
+                    rel="${dep#@rpath/}"
+                    src=""
+                    for search_dir in /tmp/openmw-deps/lib /opt/homebrew/lib /usr/local/lib; do
+                      if [ -f "$search_dir/$rel" ]; then
+                        src="$search_dir/$rel"
+                        break
+                      fi
+                    done
+                    [ -n "$src" ] || continue
+                    ;;
+                esac
+                [ -f "$src" ] || continue
+                dep_base="$(basename "$src")"
+                if [ ! -f "$dist_dir/lib/$dep_base" ]; then
+                  cp -L "$src" "$dist_dir/lib/$dep_base"
+                  chmod u+w "$dist_dir/lib/$dep_base"
+                  install_name_tool -id "@executable_path/lib/$dep_base" "$dist_dir/lib/$dep_base" 2>/dev/null || true
+                  changed=1
+                fi
+                if [ "$dep" != "@executable_path/lib/$dep_base" ]; then
+                  install_name_tool -change "$dep" "@executable_path/lib/$dep_base" "$target" 2>/dev/null || true
+                fi
+              done
+            done
+          done
+          for target in "$dist_dir"/lib/*.dylib "$dist_dir/tes3mp-server"; do
+            [ -f "$target" ] || continue
+            codesign --force --sign - "$target" 2>/dev/null || true
+          done
+
+          if [ -d "$install_dir/OpenMW.app/Contents/Resources/resources" ]; then
+            cp -R "$install_dir/OpenMW.app/Contents/Resources/resources" "$dist_dir/resources"
+          elif [ -d "$build_dir/OpenMW.app/Contents/Resources/resources" ]; then
+            cp -R "$build_dir/OpenMW.app/Contents/Resources/resources" "$dist_dir/resources"
+          elif [ -d "$build_dir/resources" ]; then
+            cp -R "$build_dir/resources" "$dist_dir/resources"
+          fi
+          for cfg in defaults.bin gamecontrollerdb.txt openmw.cfg settings-default.cfg tes3mp-client-default.cfg tes3mp-server-default.cfg; do
+            if [ -f "$install_dir/OpenMW.app/Contents/Resources/$cfg" ]; then
+              cp "$install_dir/OpenMW.app/Contents/Resources/$cfg" "$dist_dir/"
+            elif [ -f "$build_dir/$cfg" ]; then
+              cp "$build_dir/$cfg" "$dist_dir/"
+            fi
+          done
+
+          archive_name="tes3mp-openmw-0.51.0-macos-arm64-${short_sha}.tar.gz"
+          tar -C "$dist_dir" -czf "$out_dir/$archive_name" .
+
+          {
+            (cd "$out_dir" && shasum -a 256 "$archive_name")
+            (cd "$dist_dir" && shasum -a 256 OpenMW.app/Contents/MacOS/openmw tes3mp-server)
+          } > "$out_dir/SHA256SUMS-macos.txt"
+
+      - name: Upload macOS release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: |
+            ${{ github.workspace }}/release_assets/*.tar.gz
+            ${{ github.workspace }}/release_assets/SHA256SUMS-macos.txt
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux, build-macos]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ github.workspace }}/downloaded
+
+      - name: Prepare combined checksums & release metadata
+        id: meta
+        run: |
+          short_sha="${GITHUB_SHA:0:10}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            release_tag="${{ github.ref_name }}"
+          else
+            release_tag="v0.51.0-${short_sha}"
+          fi
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+          mkdir -p "${{ github.workspace }}/final_assets"
+          find "${{ github.workspace }}/downloaded" -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} "${{ github.workspace }}/final_assets/" \;
+
+          {
+            cat "${{ github.workspace }}/downloaded/release-windows-x64/SHA256SUMS-windows.txt"
+            cat "${{ github.workspace }}/downloaded/release-linux-x64/SHA256SUMS-linux.txt"
+            cat "${{ github.workspace }}/downloaded/release-macos-arm64/SHA256SUMS-macos.txt"
+          } > "${{ github.workspace }}/final_assets/SHA256SUMS.txt"
+
+          {
+            echo "## TES3MP on OpenMW 0.51.0 (\`${short_sha}\`)"
+            echo ""
+            echo "- **Commit:** \`${GITHUB_SHA}\`"
+            echo "- **Build Type:** \`${{ inputs.build_type || 'Release' }}\`"
+            echo "- **Targets Built:** \`openmw\`, \`tes3mp-server\` (Windows x64 \`.zip\`, Linux x64 \`.tar.gz\`, macOS arm64 \`.tar.gz\`)"
+            echo ""
+            echo "### SHA-256 Checksums"
+            echo '```'
+            cat "${{ github.workspace }}/final_assets/SHA256SUMS.txt"
+            echo '```'
+          } > "${{ github.workspace }}/RELEASE_BODY.md"
+
+      - name: Scan release assets with VirusTotal
+        id: virustotal
+        if: env.VT_API_KEY != ''
+        continue-on-error: true
+        uses: crazy-max/ghaction-virustotal@v5
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            ${{ github.workspace }}/final_assets/*.zip
+            ${{ github.workspace }}/final_assets/*.tar.gz
+          update_release_body: false
+          request_rate: 4
+
+      - name: Append VirusTotal results to release notes
+        if: steps.virustotal.outputs.analysis != ''
+        env:
+          VT_ANALYSIS: ${{ steps.virustotal.outputs.analysis }}
+        run: |
+          {
+            echo ""
+            echo "### VirusTotal Analysis"
+            IFS=',' read -ra entries <<< "$VT_ANALYSIS"
+            for entry in "${entries[@]}"; do
+              file_name="${entry%%=*}"
+              vt_url="${entry#*=}"
+              if [ -n "$file_name" ] && [ -n "$vt_url" ]; then
+                echo "- [\`${file_name}\`](${vt_url})"
+              fi
+            done
+          } >> "${{ github.workspace }}/RELEASE_BODY.md"
 
       - name: Publish GitHub Release
-        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.release_tag }}
@@ -263,5 +605,6 @@ jobs:
           draft: false
           make_latest: true
           files: |
-            ${{ github.workspace }}/release_assets/${{ steps.package.outputs.archive_name }}
-            ${{ github.workspace }}/release_assets/SHA256SUMS.txt
+            ${{ github.workspace }}/final_assets/*.zip
+            ${{ github.workspace }}/final_assets/*.tar.gz
+            ${{ github.workspace }}/final_assets/SHA256SUMS.txt

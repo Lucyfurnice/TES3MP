@@ -16,9 +16,12 @@ FIND_LIBRARY (RakNet_LIBRARY_RELEASE NAMES RakNetLibStatic
     /usr/local/lib
     /opt/local/lib
     $ENV{RAKNET_ROOT}/lib
+    $ENV{RAKNET_ROOT}/lib64
+    $ENV{RAKNET_ROOT}/build/lib
     $ENV{RAKNET_ROOT}/build/lib/Release
     D:/Lib/__staging__/CrabNet/build/lib/Release
     D:/Lib/__staging__/CrabNet/lib
+    NO_CMAKE_FIND_ROOT_PATH
     )
 
 FIND_LIBRARY (RakNet_LIBRARY_DEBUG NAMES RakNetLibStaticd
@@ -31,9 +34,12 @@ FIND_LIBRARY (RakNet_LIBRARY_DEBUG NAMES RakNetLibStaticd
     /usr/local/lib
     /opt/local/lib
     $ENV{RAKNET_ROOT}/lib
+    $ENV{RAKNET_ROOT}/lib64
+    $ENV{RAKNET_ROOT}/build/lib
     $ENV{RAKNET_ROOT}/build/lib/Debug
     D:/Lib/__staging__/CrabNet/build/lib/Debug
     D:/Lib/__staging__/CrabNet/lib
+    NO_CMAKE_FIND_ROOT_PATH
     )
 
 FIND_PATH (RakNet_INCLUDES raknet/RakPeer.h
@@ -43,6 +49,7 @@ FIND_PATH (RakNet_INCLUDES raknet/RakPeer.h
     /opt/local/include
     $ENV{RAKNET_ROOT}/include
     D:/Lib/__staging__/CrabNet/include
+    NO_CMAKE_FIND_ROOT_PATH
     )
 
 MESSAGE(STATUS ${RakNet_INCLUDES})
