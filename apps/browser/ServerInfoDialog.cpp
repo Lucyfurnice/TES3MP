@@ -36,7 +36,7 @@ ServerInfoDialog::ServerInfoDialog(const QString &addr, QWidget *parent): QDialo
     connect(worker, SIGNAL(finished()), refreshThread, SLOT(quit()));
     connect(refreshThread, SIGNAL(finished()), this, SLOT(refresh()));
 
-    connect(btnRefresh, &QPushButton::clicked, [this]{
+    connect(btnRefresh, &QPushButton::clicked, this, [this]{
         if (!refreshThread->isRunning())
             refreshThread->start();
     });

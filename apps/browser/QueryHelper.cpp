@@ -14,7 +14,7 @@ QueryHelper::QueryHelper(QAbstractItemModel *model)
     _model = model;
     connect(queryThread, SIGNAL(started()), queryUpdate, SLOT(process()));
     connect(queryUpdate, SIGNAL(finished()), queryThread, SLOT(quit()));
-    connect(queryUpdate, &QueryUpdate::finished, [this](){emit finished();});
+    connect(queryUpdate, &QueryUpdate::finished, this, [this](){emit finished();});
     connect(queryUpdate, SIGNAL(updateModel(const QString&, unsigned short, const QueryData&)),
             this, SLOT(update(const QString&, unsigned short, const QueryData&)));
     queryUpdate->moveToThread(queryThread);

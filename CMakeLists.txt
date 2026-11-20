@@ -57,7 +57,7 @@ option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MS
 
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
 
-if (BUILD_LAUNCHER OR BUILD_OPENCS OR BUILD_WIZARD OR BUILD_OPENCS_TESTS)
+if (BUILD_LAUNCHER OR BUILD_OPENCS OR BUILD_WIZARD OR BUILD_OPENCS_TESTS OR BUILD_BROWSER)
     set(USE_QT TRUE)
 else()
     set(USE_QT FALSE)
@@ -713,6 +713,10 @@ endif()
 
 if (BUILD_MASTER)
     add_subdirectory( apps/master )
+endif()
+
+if (BUILD_BROWSER)
+    add_subdirectory( apps/browser )
 endif()
 
 if (BUILD_OPENMW OR BUILD_OPENMW_TESTS)

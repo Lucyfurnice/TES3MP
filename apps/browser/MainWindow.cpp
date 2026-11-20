@@ -3,7 +3,11 @@
 #include "PingHelper.hpp"
 #include "ServerInfoDialog.hpp"
 #include "components/files/configurationmanager.hpp"
-#include <qdebug.h>
+#include <QApplication>
+#include <QCoreApplication>
+#include <QDebug>
+#include <QDir>
+#include <QFileInfo>
 #include <QInputDialog>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -15,6 +19,7 @@ using namespace Process;
 using namespace std;
 
 MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
 {
     setupUi(this);
 
@@ -35,8 +40,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     PingHelper::Get().SetModel((ServerModel*)proxyModel->sourceModel());
     queryHelper = new QueryHelper(proxyModel->sourceModel());
-    connect(queryHelper, &QueryHelper::started, [this](){actionRefresh->setEnabled(false);});
-    connect(queryHelper, &QueryHelper::finished, [this](){actionRefresh->setEnabled(true);});
+    connect(queryHelper, &QueryHelper::started, this, [this](){actionRefresh->setEnabled(false);});
+    connect(queryHelper, &QueryHelper::finished, this, [this](){actionRefresh->setEnabled(true);});
 
     connect(tabWidget, SIGNAL(currentChanged(int)), this, SLOT(tabSwitched(int)));
     connect(actionAdd, SIGNAL(triggered(bool)), this, SLOT(addServer()));
@@ -143,8 +148,24 @@ void MainWindow::play()
         arguments.append(QLatin1String("--password=") + passw.toLatin1());
     }
 
-    if (mGameInvoker->startProcess(QLatin1String("tes3mp"), arguments, true))
-        return qApp->quit();
+    QString clientName = QLatin1String("openmw");
+    const QDir appDir(QCoreApplication::applicationDirPath());
+#ifdef Q_OS_WIN
+    const QString openmwBin = QLatin1String("openmw.exe");
+    const QString tes3mpBin = QLatin1String("tes3mp.exe");
+#else
+    const QString openmwBin = QLatin1String("openmw");
+    const QString tes3mpBin = QLatin1String("tes3mp");
+#endif
+    if (!QFileInfo::exists(appDir.absoluteFilePath(openmwBin))
+        && QFileInfo::exists(appDir.absoluteFilePath(tes3mpBin)))
+        clientName = QLatin1String("tes3mp");
+
+    if (mGameInvoker->startProcess(clientName, arguments, true))
+    {
+        qApp->quit();
+        return;
+    }
 }
 
 void MainWindow::tabSwitched(int index)
