@@ -8,7 +8,10 @@
 
 template<typename... Types>
 constexpr char TypeString<Types...>::value[];
-constexpr ScriptFunctionData ScriptFunctions::functions[];
+constexpr ScriptFunctionIdentityData ScriptFunctions::functionIdentities[];
+const ScriptFunctionData ScriptFunctions::functions[sizeof(ScriptFunctions::functionIdentities) / sizeof(ScriptFunctions::functionIdentities[0])]{
+        TES3MP_SCRIPT_FUNCTION_LIST
+};
 constexpr ScriptCallbackData ScriptFunctions::callbacks[];
 
 void ScriptFunctions::MakePublic(ScriptFunc _public, const char *name, char ret_type, const char *def) noexcept

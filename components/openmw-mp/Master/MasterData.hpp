@@ -31,7 +31,7 @@ struct Plugin
 {
     std::string name;
     unsigned hash;
-    Plugin(std::string name = "", unsigned hash = 0): name(std::move(name)), hash(hash) {};
+    Plugin(std::string name = "", unsigned hash = 0): name(std::move(name)), hash(hash) {}
 };
 
 struct QueryData
@@ -66,7 +66,7 @@ struct QueryData
     const char *GetGameMode() const { return rules.at("gamemode").str.c_str(); }
     void SetGameMode(const char *str) { rules["gamemode"].str = str; }
 
-    void SetPassword(int value) { rules["passw"].val = value; };
+    void SetPassword(int value) { rules["passw"].val = value; }
     int GetPassword() const { return (int) rules.at("passw").val; }
 
 

@@ -96,16 +96,32 @@ struct CallbackIdentity
 };
 
 
+struct ScriptFunctionIdentity : public ScriptIdentity
+{
+    template<typename R, typename... Types>
+    constexpr ScriptFunctionIdentity(Function<R, Types...> fn) : ScriptIdentity(fn) {}
+};
+
+struct ScriptFunctionIdentityData
+{
+    const char* name;
+    const ScriptFunctionIdentity func;
+
+    constexpr ScriptFunctionIdentityData(const char* name, ScriptFunctionIdentity func) : name(name), func(func) {}
+};
+
 struct ScriptFunctionPointer : public ScriptIdentity
 {
     void *addr;
-#if (!defined(__clang__) && defined(__GNUC__))
     template<typename R, typename... Types>
-    constexpr ScriptFunctionPointer(Function<R, Types...> addr) : ScriptIdentity(addr), addr((void*)(addr)) {}
+    ScriptFunctionPointer(Function<R, Types...> fn) : ScriptIdentity(fn)
+    {
+#if defined(__GNUC__) || defined(__clang__)
+        addr = __extension__ reinterpret_cast<void*>(fn);
 #else
-    template<typename R, typename... Types>
-    constexpr ScriptFunctionPointer(Function<R, Types...> addr) : ScriptIdentity(addr), addr(addr) {}
+        addr = reinterpret_cast<void*>(fn);
 #endif
+    }
 };
 
 struct ScriptFunctionData
@@ -113,7 +129,7 @@ struct ScriptFunctionData
     const char* name;
     const ScriptFunctionPointer func;
 
-    constexpr ScriptFunctionData(const char* name, ScriptFunctionPointer func) : name(name), func(func) {}
+    ScriptFunctionData(const char* name, ScriptFunctionPointer func) : name(name), func(func) {}
 };
 
 struct ScriptCallbackData

@@ -117,40 +117,45 @@ public:
     static bool IsTimerElapsed(int timerId) noexcept;
 
 
-    static constexpr ScriptFunctionData functions[]{
-            {"CreateTimer",         ScriptFunctions::CreateTimer},
-            {"CreateTimerEx",       ScriptFunctions::CreateTimerEx},
-            {"MakePublic",          ScriptFunctions::MakePublic},
-            {"CallPublic",          ScriptFunctions::CallPublic},
-
-            {"StartTimer",          ScriptFunctions::StartTimer},
-            {"StopTimer",           ScriptFunctions::StopTimer},
-            {"RestartTimer",        ScriptFunctions::RestartTimer},
-            {"FreeTimer",           ScriptFunctions::FreeTimer},
-            {"IsTimerElapsed",      ScriptFunctions::IsTimerElapsed},
-
-            ACTORAPI,
-            BOOKAPI,
-            CELLAPI,
-            CHARCLASSAPI,
-            CHATAPI,
-            DIALOGUEAPI,
-            FACTIONAPI,
-            GUIAPI,
-            ITEMAPI,
-            MECHANICSAPI,
-            MISCELLANEOUSAPI,
-            POSITIONAPI,
-            QUESTAPI,
-            RECORDSDYNAMICAPI,
-            SHAPESHIFTAPI,
-            SERVERAPI,
-            SETTINGSAPI,
-            SPELLAPI,
-            STATAPI,
-            OBJECTAPI,
+#define TES3MP_SCRIPT_FUNCTION_LIST \
+            {"CreateTimer",         ScriptFunctions::CreateTimer}, \
+            {"CreateTimerEx",       ScriptFunctions::CreateTimerEx}, \
+            {"MakePublic",          ScriptFunctions::MakePublic}, \
+            {"CallPublic",          ScriptFunctions::CallPublic}, \
+ \
+            {"StartTimer",          ScriptFunctions::StartTimer}, \
+            {"StopTimer",           ScriptFunctions::StopTimer}, \
+            {"RestartTimer",        ScriptFunctions::RestartTimer}, \
+            {"FreeTimer",           ScriptFunctions::FreeTimer}, \
+            {"IsTimerElapsed",      ScriptFunctions::IsTimerElapsed}, \
+ \
+            ACTORAPI, \
+            BOOKAPI, \
+            CELLAPI, \
+            CHARCLASSAPI, \
+            CHATAPI, \
+            DIALOGUEAPI, \
+            FACTIONAPI, \
+            GUIAPI, \
+            ITEMAPI, \
+            MECHANICSAPI, \
+            MISCELLANEOUSAPI, \
+            POSITIONAPI, \
+            QUESTAPI, \
+            RECORDSDYNAMICAPI, \
+            SHAPESHIFTAPI, \
+            SERVERAPI, \
+            SETTINGSAPI, \
+            SPELLAPI, \
+            STATAPI, \
+            OBJECTAPI, \
             WORLDSTATEAPI
+
+    static constexpr ScriptFunctionIdentityData functionIdentities[]{
+            TES3MP_SCRIPT_FUNCTION_LIST
     };
+
+    static const ScriptFunctionData functions[sizeof(functionIdentities) / sizeof(functionIdentities[0])];
 
     static constexpr ScriptCallbackData callbacks[]{
             {"OnServerInit",             Callback<>()},

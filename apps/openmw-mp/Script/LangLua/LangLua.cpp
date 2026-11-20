@@ -106,7 +106,7 @@ struct LuaFunctionDispatcher {
     template <typename ReturnType, typename... Args>
     inline static ReturnType Dispatch(lua_State*&& lua, Args&&... args) noexcept {
         // Retrieve function data
-        constexpr ScriptFunctionData const& functionData = ScriptFunctions::functions[FunctionIndex];
+        constexpr ScriptFunctionIdentityData const& functionData = ScriptFunctions::functionIdentities[FunctionIndex];
         // Retrieve argument from the Lua stack
         auto argument = luabridge::Stack<typename CharType<functionData.func.types[ArgIndex - 1]>::type>::get(lua, ArgIndex);
         // Recursively dispatch the Lua function
@@ -121,29 +121,27 @@ struct LuaFunctionDispatcher<0, FunctionIndex> {
     // Dispatch Lua function with the given arguments
     template <typename ReturnType, typename... Args>
     inline static ReturnType Dispatch(lua_State*&&, Args&&... args) noexcept {
-        // Retrieve function data
-        constexpr ScriptFunctionData const& functionData = ScriptFunctions::functions[FunctionIndex];
-        // Call the C++ function using reinterpret_cast
-        return reinterpret_cast<FunctionEllipsis<ReturnType>>(functionData.func.addr)(std::forward<Args>(args)...);
+        // Call the C++ function using the runtime function pointer table
+        return reinterpret_cast<FunctionEllipsis<ReturnType>>(ScriptFunctions::functions[FunctionIndex].func.addr)(std::forward<Args>(args)...);
     }
 };
 
 // Lua function wrapper for functions returning 'void'
 template <unsigned int FunctionIndex>
-static typename std::enable_if<ScriptFunctions::functions[FunctionIndex].func.ret == 'v', int>::type LuaFunctionWrapper(lua_State* lua) noexcept {
+static typename std::enable_if<ScriptFunctions::functionIdentities[FunctionIndex].func.ret == 'v', int>::type LuaFunctionWrapper(lua_State* lua) noexcept {
     // Dispatch the Lua function
-    LuaFunctionDispatcher<ScriptFunctions::functions[FunctionIndex].func.numargs, FunctionIndex>::template Dispatch<void>(std::forward<lua_State*>(lua));
+    LuaFunctionDispatcher<ScriptFunctions::functionIdentities[FunctionIndex].func.numargs, FunctionIndex>::template Dispatch<void>(std::forward<lua_State*>(lua));
     return 0;
 }
 
 // Lua function wrapper for functions with non-void return types
 template <unsigned int FunctionIndex>
-static typename std::enable_if<ScriptFunctions::functions[FunctionIndex].func.ret != 'v', int>::type LuaFunctionWrapper(lua_State* lua) noexcept {
+static typename std::enable_if<ScriptFunctions::functionIdentities[FunctionIndex].func.ret != 'v', int>::type LuaFunctionWrapper(lua_State* lua) noexcept {
     // Dispatch the Lua function
-    auto result = LuaFunctionDispatcher<ScriptFunctions::functions[FunctionIndex].func.numargs, FunctionIndex>::template Dispatch<
-        typename CharType<ScriptFunctions::functions[FunctionIndex].func.ret>::type>(std::forward<lua_State*>(lua));
+    auto result = LuaFunctionDispatcher<ScriptFunctions::functionIdentities[FunctionIndex].func.numargs, FunctionIndex>::template Dispatch<
+        typename CharType<ScriptFunctions::functionIdentities[FunctionIndex].func.ret>::type>(std::forward<lua_State*>(lua));
     // Push the result onto the Lua stack
-    luabridge::Stack<typename CharType<ScriptFunctions::functions[FunctionIndex].func.ret>::type>::push(lua, result);
+    luabridge::Stack<typename CharType<ScriptFunctions::functionIdentities[FunctionIndex].func.ret>::type>::push(lua, result);
     return 1;
 }
 
@@ -151,7 +149,7 @@ static typename std::enable_if<ScriptFunctions::functions[FunctionIndex].func.re
 template <unsigned int FunctionIndex>
 struct LuaFunctionDefinition {
     static constexpr LuaFunctionData FunctionInfo{
-       ScriptFunctions::functions[FunctionIndex].name, LuaFunctionWrapper<FunctionIndex>
+       ScriptFunctions::functionIdentities[FunctionIndex].name, LuaFunctionWrapper<FunctionIndex>
     };
 };
 
