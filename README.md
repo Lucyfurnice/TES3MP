@@ -2,7 +2,7 @@
 
 An experimental port bringing **TES3MP 0.8.1** multiplayer networking, server scripting, and state synchronization onto the **OpenMW 0.51.0** (C++20) engine codebase.
 
-> **Experimental Pre-Release Notice (`v0.51.0-alpha.1` milestone):**
+> **Pre-Release Notice (`v0.51.0-rc2` milestone):**
 > This fork pairs TES3MP `0.8.1` (protocol `10`) with OpenMW `0.51.0` commit-hash verification (`Version::getCommitHash()`). **Clients and servers from legacy TES3MP 0.8.1 releases are not wire-compatible with this fork.** Expect breaking changes while remaining client/mod runtime edge cases are stabilized.
 
 ---
@@ -14,7 +14,10 @@ An experimental port bringing **TES3MP 0.8.1** multiplayer networking, server sc
 | **`tes3mp-server`** (`apps/openmw-mp`) | OpenMW 0.51.0 | Compiles & links cleanly | Boots to `OnServerPostInit`; verified CrabNet/RakNet handshakes, `PacketPreInit` checksum validation, and `ESM::RefId` serialization |
 | **`openmw-mp` Core** (`components/openmw-mp`) | OpenMW 0.51.0 | Compiles cleanly | Packet structures (`BasePacket`, `PacketPreInit`, `Player`/`Actor`/`Object`/`Worldstate`) updated for `ESM::RefId` and OpenMW 0.51.0 data types |
 | **`tes3mp` Client** (`apps/openmw/mwmp`) | OpenMW 0.51.0 | Compiles & links cleanly | Connects to `tes3mp-server`, exchanges `ID_GAME_BASE_INFO` / `ID_PLAYER_BASEINFO` / `ID_LOADED`, loads cells/actors/UI; active soak testing with modded setups |
-| **Master / Browser** (`BUILD_MASTER`, `BUILD_BROWSER`) | OpenMW 0.51.0 | Off by default | Not yet enabled or verified against Qt6 / OpenMW 0.51.0 |
+| **`tes3mp-browser`** (`BUILD_BROWSER`) | OpenMW 0.51.0 | Compiles & links cleanly (Qt6) | Ported to Qt6 (`AUTOMOC`/`AUTOUIC`), `std::filesystem`, and `Settings::SettingsFileParser`; fixed cross-thread Qt signal contexts; launches `openmw` (or `tes3mp`) with `--connect` / `--password`; verified live startup |
+| **`tes3mp-master`** (`BUILD_MASTER`) | OpenMW 0.51.0 | Compiles & links cleanly | Target renamed to `tes3mp-master` (C++20); `SimpleWeb` updated to Boost.Asio `io_context` / `steady_timer` / `ip::make_address` (Boost `1.92`) |
+| **Launcher & Wizard** (`BUILD_LAUNCHER`, `BUILD_WIZARD`) | OpenMW 0.51.0 | Compiles & links cleanly (Qt6) | Built `openmw-launcher` and `openmw-wizard` against Qt `6.11.3` with `.qm` translation deployment; verified clean offscreen startup |
+| **`openmw-cs`** (`apps/opencs`, `BUILD_OPENCS`) | OpenMW 0.51.0 | Compiles & links cleanly (Qt6) | Built `openmw-cs` (`osgQt`, `openmw-cs-lib`) against Qt `6.11.3` and OpenMW 0.51.0 `components/esm3`; verified clean offscreen startup |
 
 ---
 
@@ -35,14 +38,15 @@ An experimental port bringing **TES3MP 0.8.1** multiplayer networking, server sc
 - **Networking Library:** [CrabNet](https://github.com/TES3MP/CrabNet) built as `RakNetLibStatic` / `RakNetLibStaticd` (discovered via `cmake/FindRakNet.cmake` using `RAKNET_ROOT`)
 - **OpenMW 0.51.0 Dependencies:**
   - OpenSceneGraph `3.6.5` (`.nif`/image plugins; `.dae` Collada plugin is optional)
-  - Boost `>= 1.70.0`, SDL2 `>= 2.0.20`, MyGUI `3.4.3`, Bullet `>= 286`, LuaJIT (`USE_LUAJIT=ON`), OpenAL, FFmpeg `>= 3.2`, ICU, yaml-cpp, RecastNavigation, LZ4, SQLite3, zlib
+  - Boost `>= 1.70.0` (including `boost-asio` for `BUILD_MASTER`), SDL2 `>= 2.0.20`, MyGUI `3.4.3`, Bullet `>= 286`, LuaJIT (`USE_LUAJIT=ON`), OpenAL, FFmpeg `>= 3.2`, ICU, yaml-cpp, RecastNavigation, LZ4, SQLite3, zlib
+  - **Qt6** (`Core`, `Widgets`, `Network`, `OpenGL`, `OpenGLWidgets`, `LinguistTools`, `Svg`, plus `qttranslations` when `DEPLOY_QT_TRANSLATIONS=ON` for `BUILD_BROWSER`, `BUILD_LAUNCHER`, `BUILD_WIZARD`, `BUILD_OPENCS`)
   - **Vendored in-tree (`extern/`):** `Base64`, `LuaBridge`, `PicoSHA2`, `oics`, `smhasher`, `sol3`, `osg-ffmpeg-videoplayer`
 
 ### Windows (MSVC / Visual Studio 2026 + Ninja + vcpkg)
 
 Tested toolchain:
 - **Compiler:** MSVC toolset `14.51.36231` (Visual Studio 18 / 2026, x64)
-- **Dependencies:** `vcpkg` (`x64-windows` triplet) + prebuilt CrabNet (`RAKNET_ROOT=D:/Lib/__staging__/CrabNet`)
+- **Dependencies:** `vcpkg` (`x64-windows` triplet, with `boost-asio`, `qtbase`, `qtsvg`, `qttools`, and `qttranslations` installed) + prebuilt CrabNet (`RAKNET_ROOT=D:/Lib/__staging__/CrabNet`)
 
 From an **x64 Native Tools Command Prompt** (or after calling `vcvars64.bat`):
 
@@ -53,25 +57,25 @@ cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
   -DBUILD_OPENMW=ON `
   -DBUILD_OPENMW_MP=ON `
-  -DBUILD_LAUNCHER=OFF `
-  -DBUILD_OPENCS=OFF `
-  -DBUILD_WIZARD=OFF `
-  -DBUILD_BROWSER=OFF `
-  -DBUILD_MASTER=OFF `
+  -DBUILD_LAUNCHER=ON `
+  -DBUILD_OPENCS=ON `
+  -DBUILD_WIZARD=ON `
+  -DBUILD_BROWSER=ON `
+  -DBUILD_MASTER=ON `
   -DBUILD_BSATOOL=OFF `
   -DBUILD_ESMTOOL=OFF `
   -DBUILD_ESSIMPORTER=OFF `
   -DBUILD_MWINIIMPORTER=OFF `
   -DUSE_LUAJIT=ON
 
-cmake --build build --target openmw tes3mp-server -j 8
+cmake --build build --target openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs -j 8
 ```
 
-> **Windows Debug ABI note:** In `Debug` builds, `CMakeLists.txt` prioritizes `<vcpkg>/x64-windows/debug` ahead of `<vcpkg>/x64-windows` in `CMAKE_PREFIX_PATH` so OpenSceneGraph links against debug CRT libraries (`_ITERATOR_DEBUG_LEVEL=2`). Mixing Release OSG DLLs into a Debug build will fail at runtime.
+> **Windows Debug ABI note:** In `Debug` builds, `CMakeLists.txt` prioritizes `<vcpkg>/x64-windows/debug` ahead of `<vcpkg>/x64-windows` in `CMAKE_PREFIX_PATH` so OpenSceneGraph and Qt6 link against debug CRT libraries (`_ITERATOR_DEBUG_LEVEL=2`). Mixing Release DLLs into a Debug build will fail at runtime.
 
 ### Linux / Unix (GCC or Clang)
 
-Requirements: GCC 11+ or Clang 15+ (full C++20 support), CMake 3.16+, Ninja/Make, development packages for OpenMW 0.51.0 dependencies, and CrabNet installed or pointed to via `RAKNET_ROOT`.
+Requirements: GCC 11+ or Clang 15+ (full C++20 support), CMake 3.16+, Ninja/Make, development packages for OpenMW 0.51.0 dependencies (including Qt6 and Boost.Asio), and CrabNet installed or pointed to via `RAKNET_ROOT`.
 
 ```bash
 export RAKNET_ROOT=/path/to/CrabNet
@@ -80,24 +84,26 @@ cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DBUILD_OPENMW=ON \
   -DBUILD_OPENMW_MP=ON \
-  -DBUILD_LAUNCHER=OFF \
-  -DBUILD_OPENCS=OFF \
-  -DBUILD_BROWSER=OFF \
-  -DBUILD_MASTER=OFF \
+  -DBUILD_LAUNCHER=ON \
+  -DBUILD_OPENCS=ON \
+  -DBUILD_WIZARD=ON \
+  -DBUILD_BROWSER=ON \
+  -DBUILD_MASTER=ON \
   -DUSE_LUAJIT=ON
 
-cmake --build build --target openmw tes3mp-server -j "$(nproc)"
+cmake --build build --target openmw tes3mp-server tes3mp-browser tes3mp-master openmw-launcher openmw-wizard openmw-cs -j "$(nproc)"
 ```
 
 ---
 
-## Pre-Release Milestones & Binary Verification (`v0.51.0-alpha.1`)
+## Pre-Release Milestones & Binary Verification (`v0.51.0-rc2`)
 
-When publishing experimental milestone tags (such as `v0.51.0-alpha.1`):
+When publishing pre-release milestone tags (such as `v0.51.0-rc2`):
 
 1. **Both `openmw` and `tes3mp-server` must be built from the same Git commit** (`components/version/version.cpp` embeds `Version::getCommitHash()`, which the server and client validate during `PacketPreInit`).
-2. **Legacy 0.8.1 incompatibility:** Protocol/script payloads containing OpenMW 0.51.0 `ESM::RefId` formats and `builtin.omwscripts` load orders will not interoperate with unpatched TES3MP 0.8.1 binaries.
-3. **Reference local Windows Debug build checksums** (commit `6263f9029f`, `CMAKE_BUILD_TYPE=Debug`):
+2. **`TES3MP_VERSION` stays `"0.8.1"` for CoreScripts compatibility:** While `resources/version` reports the OpenMW `0.51.0` engine version, `components/openmw-mp/Version.hpp` intentionally keeps `TES3MP_VERSION` set to `"0.8.1"`. Standard TES3MP CoreScripts (`server/scripts/serverCore.lua`) check that `tes3mp.GetServerVersion()` begins with `"0.8.1"` during `OnServerInit` and stop the server if mismatched.
+3. **Legacy 0.8.1 binary incompatibility:** Despite sharing the `"0.8.1"` `TES3MP_VERSION` identifier for CoreScripts, protocol/script payloads containing OpenMW 0.51.0 `ESM::RefId` formats and `builtin.omwscripts` load orders will not interoperate with unpatched TES3MP 0.8.1 client/server binaries.
+4. **Reference local Windows Debug build checksums** (commit `6263f9029f`, `CMAKE_BUILD_TYPE=Debug`):
    - `openmw.exe`: `1F2177C8B269A1B0F447DE6B1D95C386EE731685714E888513A5D2088A665812`
    - `tes3mp-server.exe`: `A6931B0891A6938E3B370F348A769F9B8290B5FCD59DE7C6A4937CAA4502F0DC`
 
@@ -128,4 +134,4 @@ When publishing experimental milestone tags (such as `v0.51.0-alpha.1`):
 
 ## AI-Assisted Development Disclosure
 
-LLM coding agents were used during this port to accelerate repetitive API refactoring across the codebase (such as `ESM::RefId` conversions, packet boilerplate updates, and subsystem hook alignment). All generated diffs are manually reviewed, compiled, and verified against OpenMW 0.51.0 headers, build targets, and wire protocols before acceptance.
+LLM coding agents were used during this port to accelerate repetitive API refactoring across the codebase (such as `ESM::RefId` conversions, packet boilerplate updates, and subsystem hook alignment).
