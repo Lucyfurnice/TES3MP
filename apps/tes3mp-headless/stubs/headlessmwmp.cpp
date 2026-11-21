@@ -246,7 +246,7 @@ namespace mwmp
     GUIController::~GUIController() = default;
     void GUIController::refreshGuiMode(MWGui::GuiMode /*guiMode*/) {}
 
-    Networking::Networking()
+    ClientNetworking::ClientNetworking()
         : connected(false)
         , peer(nullptr)
         , systemPacketController(nullptr)
@@ -256,13 +256,13 @@ namespace mwmp
         , worldstatePacketController(nullptr)
     {
     }
-    Networking::~Networking() = default;
-    bool Networking::isConnected() { return false; }
-    LocalSystem* Networking::getLocalSystem() { return Main::get().getLocalSystem(); }
-    LocalPlayer* Networking::getLocalPlayer() { return Main::get().getLocalPlayer(); }
-    ActorList* Networking::getActorList() { return &actorList; }
-    ObjectList* Networking::getObjectList() { return &objectList; }
-    Worldstate* Networking::getWorldstate() { return &worldstate; }
+    ClientNetworking::~ClientNetworking() = default;
+    bool ClientNetworking::isConnected() { return false; }
+    LocalSystem* ClientNetworking::getLocalSystem() { return Main::get().getLocalSystem(); }
+    LocalPlayer* ClientNetworking::getLocalPlayer() { return Main::get().getLocalPlayer(); }
+    ActorList* ClientNetworking::getActorList() { return &actorList; }
+    ObjectList* ClientNetworking::getObjectList() { return &objectList; }
+    Worldstate* ClientNetworking::getWorldstate() { return &worldstate; }
 
     Main* Main::pMain = nullptr;
     std::string Main::address;
@@ -273,7 +273,7 @@ namespace mwmp
     static LocalSystem gDummyLocalSystem;
     static GUIController gDummyGuiController;
     static CellController gDummyCellController;
-    static Networking gDummyNetworking;
+    static ClientNetworking gDummyNetworking;
 
     Main::Main()
         : mNetworking(&gDummyNetworking)
@@ -296,7 +296,7 @@ namespace mwmp
 
     bool Main::isValidPacketScript(std::string /*scriptId*/) { return false; }
     bool Main::isValidPacketGlobal(std::string /*globalId*/) { return false; }
-    Networking* Main::getNetworking() const { return &gDummyNetworking; }
+    ClientNetworking* Main::getNetworking() const { return &gDummyNetworking; }
     LocalSystem* Main::getLocalSystem() const { return &gDummyLocalSystem; }
     LocalPlayer* Main::getLocalPlayer() const { return &gDummyLocalPlayer; }
     GUIController* Main::getGUIController() const { return &gDummyGuiController; }

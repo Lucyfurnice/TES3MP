@@ -27,11 +27,19 @@ namespace mwmp
 {
     class LocalPlayer;
 
+#ifdef TES3MP_HEADLESS
+    class ClientNetworking
+    {
+    public:
+        ClientNetworking();
+        ~ClientNetworking();
+#else
     class Networking
     {
     public:
         Networking();
         ~Networking();
+#endif
         void connect(const std::string& ip, unsigned short port, std::vector<std::string> &content, Files::Collections &collections);
         void update();
 

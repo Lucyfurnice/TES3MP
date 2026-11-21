@@ -49,12 +49,18 @@ namespace
             "Character encoding for legacy ESM strings (win1250, win1251, win1252)");
         add("start-cell", bpo::value<std::string>()->default_value(""),
             "Initial cell name or exterior grid to load on startup");
+        add("server-cfg", bpo::value<std::string>()->default_value("tes3mp-server-default.cfg"),
+            "Path to tes3mp-server configuration file (default tes3mp-server-default.cfg)");
         add("port", bpo::value<uint16_t>()->default_value(25565),
-            "UDP port reserved for TES3MP packet hook integration");
+            "UDP port override for TES3MP networking");
         add("tick-rate", bpo::value<double>()->default_value(60.0),
             "Fixed simulation tick rate in Hz (default 60)");
         add("max-ticks", bpo::value<uint64_t>()->default_value(0),
             "Exit cleanly after N simulation ticks (0 = run until signal)");
+        add("cell-radius", bpo::value<int>()->default_value(1),
+            "Exterior cell residency radius around each player (default 1 = 3x3 neighborhood)");
+        add("cell-grace-period", bpo::value<double>()->default_value(20.0),
+            "Seconds before empty unpinned cells unload (default 20.0)");
         add("random-seed", bpo::value<unsigned int>()->default_value(0),
             "RNG seed (0 = time-based/default)");
         add("script-blacklist-warnings", bpo::value<int>()->default_value(0),
@@ -114,9 +120,13 @@ namespace
         config.mGroundcoverFiles = variables["groundcover"].as<std::vector<std::string>>();
         config.mEncoding = ToUTF8::calculateEncoding(variables["encoding"].as<std::string>());
         config.mStartCell = variables["start-cell"].as<std::string>();
+        config.mServerCfgPath = variables["server-cfg"].as<std::string>();
         config.mPort = variables["port"].as<uint16_t>();
+        config.mHasPortOverride = variables.count("port") && !variables["port"].defaulted();
         config.mTickRate = variables["tick-rate"].as<double>();
         config.mMaxTicks = variables["max-ticks"].as<uint64_t>();
+        config.mCellRadius = std::max(0, variables["cell-radius"].as<int>());
+        config.mCellGracePeriod = std::max(0.0, variables["cell-grace-period"].as<double>());
         config.mRandomSeed = variables["random-seed"].as<unsigned int>();
         config.mWarningsMode = variables["script-blacklist-warnings"].as<int>();
 

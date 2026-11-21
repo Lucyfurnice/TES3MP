@@ -10,6 +10,9 @@
 #include <iostream>
 
 static std::string tempCellDescription;
+#ifdef TES3MP_HEADLESS
+static std::function<void(const char *, bool)> sSetCellPinnedHandler;
+#endif
 
 unsigned int CellFunctions::GetCellStateChangesSize(unsigned short pid) noexcept
 {
@@ -124,3 +127,16 @@ void CellFunctions::SendCell(unsigned short pid) noexcept
 
     packet->Send(false);
 }
+
+#ifdef TES3MP_HEADLESS
+void CellFunctions::SetCellPinned(const char *cellDescription, bool pinned) noexcept
+{
+    if (sSetCellPinnedHandler && cellDescription)
+        sSetCellPinnedHandler(cellDescription, pinned);
+}
+
+void CellFunctions::SetCellPinnedHandler(std::function<void(const char *, bool)> handler)
+{
+    sSetCellPinnedHandler = std::move(handler);
+}
+#endif

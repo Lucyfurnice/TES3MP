@@ -1,5 +1,6 @@
 #include "headlessengine.hpp"
 
+#include "server/headlessserver.hpp"
 #include "stubs/headlessinputmanager.hpp"
 #include "stubs/headlesssoundmanager.hpp"
 #include "stubs/headlesswindowmanager.hpp"
@@ -57,6 +58,10 @@ namespace TES3MPHeadless
 
     HeadlessEngine::~HeadlessEngine()
     {
+        if (mServer)
+            mServer->shutdown();
+        mServer.reset();
+
         if (mLuaWorker)
             mLuaWorker->join();
 
@@ -103,6 +108,13 @@ namespace TES3MPHeadless
 
         initManagers();
         loadContentAndWorld();
+
+        HeadlessServerConfig serverCfg;
+        serverCfg.mServerCfgPath = mConfig.mServerCfgPath;
+        serverCfg.mPortOverride = mConfig.mPort;
+        serverCfg.mHasPortOverride = mConfig.mHasPortOverride;
+        mServer = std::make_unique<HeadlessServer>(mCfgMgr, *mWorld, std::move(serverCfg));
+        mServer->init();
     }
 
     void HeadlessEngine::initManagers()
@@ -195,6 +207,7 @@ namespace TES3MPHeadless
 
         osg::ref_ptr<osg::Group> rootNode(new osg::Group);
         mWorld->init(Debug::Warning, nullptr, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
+        mWorld->getWorldScene().setResidencyConfig(mConfig.mCellRadius, mConfig.mCellGracePeriod);
         mEnvironment.setWorldScene(mWorld->getWorldScene());
         mWorld->setupPlayer();
         mWorld->setRandomSeed(mConfig.mRandomSeed);
@@ -254,12 +267,14 @@ namespace TES3MPHeadless
 
     void HeadlessEngine::pollNetwork(unsigned int /*tickNumber*/)
     {
-        // Hook for inbound RakNet / tes3mp-server packet ingestion before stepping simulation.
+        if (mServer)
+            mServer->pollNetwork();
     }
 
     void HeadlessEngine::broadcastNetworkState(unsigned int /*tickNumber*/)
     {
-        // Hook for outbound RakNet / tes3mp-server simulation delta broadcast after stepping simulation.
+        if (mServer)
+            mServer->broadcastNetworkState();
     }
 
     bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt)
@@ -283,6 +298,11 @@ namespace TES3MPHeadless
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
+                std::vector<ESM::Cell> occupiedCells;
+                if (mServer)
+                    mServer->collectPlayerCells(occupiedCells);
+                mWorld->getWorldScene().syncCellResidency(occupiedCells, dt);
+
                 if (mWorld->getScriptsEnabled())
                 {
                     executeLocalScripts();
@@ -330,12 +350,14 @@ namespace TES3MPHeadless
         unsigned int tickNumber = 0;
         auto nextTickTime = std::chrono::steady_clock::now();
 
-        while (!mStopRequested && !mStateManager->hasQuitRequest())
+        while (!mStopRequested && !mStateManager->hasQuitRequest() && (!mServer || mServer->isRunning()))
         {
             if (mConfig.mMaxTicks > 0 && tickNumber >= mConfig.mMaxTicks)
                 break;
 
             pollNetwork(tickNumber);
+            if (mServer && !mServer->isRunning())
+                break;
 
             const float scaledDt
                 = static_cast<float>(fixedDt * mWorld->getTimeManager()->getSimulationTimeScale());
@@ -350,7 +372,9 @@ namespace TES3MPHeadless
                 const MWWorld::CellStore* cell = mWorld->getWorldScene().getCurrentCell();
                 Log(Debug::Info) << "Headless tick " << tickNumber
                                  << " | simTime=" << mWorld->getTimeManager()->getSimulationTime()
-                                 << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>");
+                                 << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>")
+                                 << " | activeCells=" << mWorld->getWorldScene().getActiveCells().size()
+                                 << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0);
             }
 
             nextTickTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(stepDuration);

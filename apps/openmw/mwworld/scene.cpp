@@ -1,6 +1,9 @@
 #include "scene.hpp"
 
 #include <atomic>
+#ifdef TES3MP_HEADLESS
+#include <charconv>
+#endif
 #include <chrono>
 #include <limits>
 
@@ -442,6 +445,10 @@ namespace MWWorld
 
         MWBase::Environment::get().getSoundManager()->stopSound(cell);
         mActiveCells.erase(cell);
+#ifdef TES3MP_HEADLESS
+        mEvictionTimers.erase(cell);
+        mPinnedCells.erase(cell);
+#endif
         // Clean up any effects that may have been spawned while unloading all cells
         if (mActiveCells.empty())
             mRendering.notifyWorldSpaceChanged();
@@ -562,7 +569,17 @@ namespace MWWorld
             }
         }
         else
+        {
+#ifdef TES3MP_HEADLESS
+            const bool anyActiveWater = std::ranges::any_of(mActiveCells, [&](const CellStore* active) {
+                return active != &cell && (active->getCell()->hasWater() || active->isExterior());
+            });
+            if (!anyActiveWater)
+                mPhysics->disableWater();
+#else
             mPhysics->disableWater();
+#endif
+        }
 
         if (!cell.isExterior() && !cellVariant.isQuasiExterior())
             mRendering.configureAmbient(cellVariant);
@@ -595,6 +612,10 @@ namespace MWWorld
         mLowestPoint = std::numeric_limits<float>::max();
 
         mPreloader->clear();
+#ifdef TES3MP_HEADLESS
+        mEvictionTimers.clear();
+        mPinnedCells.clear();
+#endif
     }
 
     osg::Vec4i Scene::gridCenterToBounds(const osg::Vec2i& centerCell) const
@@ -672,6 +693,7 @@ namespace MWWorld
         const int playerCellX = playerCellIndex.mX;
         const int playerCellY = playerCellIndex.mY;
 
+#ifndef TES3MP_HEADLESS
         for (auto iter = mActiveCells.begin(); iter != mActiveCells.end();)
         {
             auto* cell = *iter++;
@@ -685,6 +707,7 @@ namespace MWWorld
             else
                 unloadCell(cell, navigatorUpdateGuard.get());
         }
+#endif
 
         const DetourNavigator::CellGridBounds cellGridBounds{
             .mCenter = osg::Vec2i(playerCellX, playerCellY),
@@ -1021,6 +1044,17 @@ namespace MWWorld
 
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
 
+#ifdef TES3MP_HEADLESS
+        mEvictionTimers.erase(&cell);
+        if (!isCellActive(cell))
+        {
+            loadingListener->setProgressRange(cell.count());
+            mNavigator.updateBounds(
+                cell.getCell()->getWorldSpace(), std::nullopt, position.asVec3(), navigatorUpdateGuard.get());
+            mPagedRefs.clear();
+            loadCell(cell, loadingListener, changeEvent, position.asVec3(), navigatorUpdateGuard.get());
+        }
+#else
         // unload
         for (auto iter = mActiveCells.begin(); iter != mActiveCells.end();)
         {
@@ -1037,6 +1071,7 @@ namespace MWWorld
         // Load cell.
         mPagedRefs.clear();
         loadCell(cell, loadingListener, changeEvent, position.asVec3(), navigatorUpdateGuard.get());
+#endif
 
         navigatorUpdateGuard.reset();
 
@@ -1122,7 +1157,11 @@ namespace MWWorld
 
     void Scene::addObjectToScene(const Ptr& ptr)
     {
+#ifdef TES3MP_HEADLESS
+        const bool isInterior = ptr.getCell() && !ptr.getCell()->isExterior();
+#else
         const bool isInterior = mCurrentCell && !mCurrentCell->isExterior();
+#endif
         try
         {
             addObject(ptr, mWorld, mPagedRefs, *mPhysics, mRendering);
@@ -1226,7 +1265,7 @@ namespace MWWorld
         osg::Vec3f moved = playerPos - mLastPlayerPos;
         osg::Vec3f predictedPos = playerPos + moved / dt * mPredictionTime;
 
-        if (mCurrentCell->isExterior())
+        if (mCurrentCell && mCurrentCell->isExterior())
             exteriorPositions.push_back(PositionCellGrid{
                 predictedPos, gridCenterToBounds(getNewGridCenter(predictedPos, &mCurrentGridCenter)) });
 
@@ -1447,4 +1486,190 @@ namespace MWWorld
     {
         mPreloader->reportStats(frameNumber, stats);
     }
+
+#ifdef TES3MP_HEADLESS
+    namespace
+    {
+        bool tryParseExteriorCellDescription(std::string_view desc, int& outX, int& outY)
+        {
+            const std::size_t comma = desc.find(',');
+            if (comma == std::string_view::npos)
+                return false;
+
+            auto trim = [](std::string_view sv) {
+                while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t'))
+                    sv.remove_prefix(1);
+                while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t'))
+                    sv.remove_suffix(1);
+                return sv;
+            };
+
+            const std::string_view xStr = trim(desc.substr(0, comma));
+            const std::string_view yStr = trim(desc.substr(comma + 1));
+            if (xStr.empty() || yStr.empty())
+                return false;
+
+            auto [px, ex] = std::from_chars(xStr.data(), xStr.data() + xStr.size(), outX);
+            auto [py, ey] = std::from_chars(yStr.data(), yStr.data() + yStr.size(), outY);
+            return ex == std::errc() && px == xStr.data() + xStr.size() && ey == std::errc()
+                && py == yStr.data() + yStr.size();
+        }
+    }
+
+    void Scene::setResidencyConfig(int exteriorRadius, double gracePeriodSeconds)
+    {
+        mResidencyRadius = std::max(0, exteriorRadius);
+        mResidencyGracePeriod = std::max(0.0, gracePeriodSeconds);
+    }
+
+    void Scene::setCellPinned(std::string_view cellDescription, bool pinned)
+    {
+        if (cellDescription.empty())
+            return;
+
+        CellStore* target = nullptr;
+        int cellX = 0;
+        int cellY = 0;
+        if (tryParseExteriorCellDescription(cellDescription, cellX, cellY))
+        {
+            target = &mWorld.getWorldModel().getExterior(
+                ESM::ExteriorCellLocation(cellX, cellY, ESM::Cell::sDefaultWorldspaceId), true);
+        }
+        else
+        {
+            target = mWorld.getWorldModel().findCell(cellDescription, true);
+        }
+
+        if (!target)
+        {
+            Log(Debug::Warning) << "setCellPinned: could not resolve cell '" << cellDescription << "'";
+            return;
+        }
+
+        if (pinned)
+        {
+            mPinnedCells.insert(target);
+            mEvictionTimers.erase(target);
+            Log(Debug::Info) << "Pinned cell for permanent headless simulation: "
+                             << target->getCell()->getDescription();
+        }
+        else
+        {
+            mPinnedCells.erase(target);
+            Log(Debug::Info) << "Unpinned cell from permanent headless simulation: "
+                             << target->getCell()->getDescription();
+        }
+    }
+
+    bool Scene::isCellPinned(const CellStore* cell) const
+    {
+        return cell && mPinnedCells.contains(cell);
+    }
+
+    void Scene::syncCellResidency(const std::vector<ESM::Cell>& occupiedCells, float dt)
+    {
+        CellStoreCollection targetCells;
+
+        auto addExteriorNeighborhood = [&](int centerX, int centerY, ESM::RefId worldspace) {
+            iterateOverCellsAround(centerX, centerY, mResidencyRadius, [&](int x, int y) {
+                CellStore& cell = mWorld.getWorldModel().getExterior(
+                    ESM::ExteriorCellLocation(x, y, worldspace), true);
+                targetCells.insert(&cell);
+            });
+        };
+
+        for (const ESM::Cell& cell : occupiedCells)
+        {
+            if (cell.isExterior())
+            {
+                addExteriorNeighborhood(cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId);
+            }
+            else if (!cell.mName.empty())
+            {
+                if (CellStore* interior = mWorld.getWorldModel().findInterior(cell.mName, true))
+                    targetCells.insert(interior);
+            }
+        }
+
+        // When no remote players are connected, keep the configured starting/current observer neighborhood resident.
+        if (occupiedCells.empty() && mCurrentCell != nullptr)
+        {
+            if (mCurrentCell->isExterior())
+            {
+                addExteriorNeighborhood(mCurrentCell->getCell()->getGridX(), mCurrentCell->getCell()->getGridY(),
+                    mCurrentCell->getCell()->getWorldSpace());
+            }
+            else
+            {
+                targetCells.insert(mCurrentCell);
+            }
+        }
+
+        for (CellStore* pinned : mPinnedCells)
+        {
+            if (pinned)
+                targetCells.insert(pinned);
+        }
+
+        std::vector<CellStore*> cellsToLoad;
+        for (CellStore* cell : targetCells)
+        {
+            mEvictionTimers.erase(cell);
+            if (!mActiveCells.contains(cell))
+                cellsToLoad.push_back(cell);
+        }
+
+        std::vector<CellStore*> cellsToUnload;
+        for (CellStore* cell : mActiveCells)
+        {
+            if (targetCells.contains(cell))
+            {
+                mEvictionTimers.erase(cell);
+                continue;
+            }
+
+            auto [it, inserted] = mEvictionTimers.try_emplace(cell, mResidencyGracePeriod);
+            if (inserted && mResidencyGracePeriod > 0.0)
+            {
+                Log(Debug::Info) << "Cell " << cell->getCell()->getDescription()
+                                 << " has 0 active occupants; scheduling unload in " << mResidencyGracePeriod << "s";
+            }
+
+            it->second -= static_cast<double>(dt);
+            if (it->second <= 0.0)
+                cellsToUnload.push_back(cell);
+        }
+
+        if (cellsToLoad.empty() && cellsToUnload.empty())
+            return;
+
+        auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
+
+        for (CellStore* cell : cellsToLoad)
+        {
+            const MWWorld::Cell& esmCell = *cell->getCell();
+            if (esmCell.isExterior())
+                mRendering.enableTerrain(true, esmCell.getWorldSpace());
+
+            const osg::Vec3f centerPos = esmCell.isExterior()
+                ? osg::Vec3f((esmCell.getGridX() + 0.5f) * ESM::getCellSize(esmCell.getWorldSpace()),
+                      (esmCell.getGridY() + 0.5f) * ESM::getCellSize(esmCell.getWorldSpace()), 0.f)
+                : osg::Vec3f(0.f, 0.f, 0.f);
+
+            mPreloader->setTerrain(mRendering.getTerrain());
+            loadCell(*cell, nullptr, false, centerPos, navigatorUpdateGuard.get());
+        }
+
+        if (!cellsToLoad.empty())
+            addPostponedPhysicsObjects();
+
+        for (CellStore* cell : cellsToUnload)
+        {
+            mEvictionTimers.erase(cell);
+            unloadCell(cell, navigatorUpdateGuard.get());
+            if (mCurrentCell == cell)
+                mCurrentCell = mActiveCells.empty() ? nullptr : *mActiveCells.begin();
+        }
+    }
+#endif
 }

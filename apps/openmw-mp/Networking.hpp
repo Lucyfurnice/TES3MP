@@ -1,6 +1,7 @@
 #ifndef OPENMW_NETWORKING_HPP
 #define OPENMW_NETWORKING_HPP
 
+#include <functional>
 #include <components/openmw-mp/Controllers/SystemPacketController.hpp>
 #include <components/openmw-mp/Controllers/PlayerPacketController.hpp>
 #include <components/openmw-mp/Controllers/ActorPacketController.hpp>
@@ -39,6 +40,12 @@ namespace  mwmp
         unsigned short getPort() const;
 
         int mainLoop();
+        void pollOnce();
+        void tickTimers();
+        void terminateTimers();
+        bool isRunning() const;
+        int getExitCode() const;
+        void setActorSyncCallback(std::function<void(unsigned char, const BaseActorList&)> callback);
 
         void stopServer(int code);
 
@@ -97,6 +104,7 @@ namespace  mwmp
         bool running;
         int exitCode;
         PacketPreInit::PluginContainer samples;
+        std::function<void(unsigned char, const BaseActorList&)> actorSyncCallback;
     };
 }
 

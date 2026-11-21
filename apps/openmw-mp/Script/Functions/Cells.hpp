@@ -1,7 +1,17 @@
 #ifndef OPENMW_CELLAPI_HPP
 #define OPENMW_CELLAPI_HPP
 
+#ifdef TES3MP_HEADLESS
+#include <functional>
+#endif
 #include "../Types.hpp"
+
+#ifdef TES3MP_HEADLESS
+#define HEADLESS_CELLAPI \
+    , {"SetCellPinned",         CellFunctions::SetCellPinned}
+#else
+#define HEADLESS_CELLAPI
+#endif
 
 #define CELLAPI \
     {"GetCellStateChangesSize", CellFunctions::GetCellStateChangesSize},\
@@ -20,7 +30,8 @@
     {"SetCell",                 CellFunctions::SetCell},\
     {"SetExteriorCell",         CellFunctions::SetExteriorCell},\
     \
-    {"SendCell",                CellFunctions::SendCell}
+    {"SendCell",                CellFunctions::SendCell}\
+    HEADLESS_CELLAPI
 
 
 class CellFunctions
@@ -140,6 +151,11 @@ public:
     * \return void
     */
     static void SendCell(unsigned short pid) noexcept;
+
+#ifdef TES3MP_HEADLESS
+    static void SetCellPinned(const char *cellDescription, bool pinned) noexcept;
+    static void SetCellPinnedHandler(std::function<void(const char *, bool)> handler);
+#endif
 
 };
 

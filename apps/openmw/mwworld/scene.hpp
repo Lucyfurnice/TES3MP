@@ -11,6 +11,10 @@
 #include <memory>
 #include <optional>
 #include <set>
+#ifdef TES3MP_HEADLESS
+#include <string_view>
+#include <unordered_map>
+#endif
 #include <vector>
 
 #include <components/esm/exteriorcelllocation.hpp>
@@ -24,6 +28,7 @@ namespace osg
 
 namespace ESM
 {
+    struct Cell;
     struct Position;
 }
 
@@ -119,6 +124,13 @@ namespace MWWorld
 
         osg::Vec2i mCurrentGridCenter;
 
+#ifdef TES3MP_HEADLESS
+        int mResidencyRadius = 1;
+        double mResidencyGracePeriod = 20.0;
+        std::unordered_map<CellStore*, double> mEvictionTimers;
+        CellStoreCollection mPinnedCells;
+#endif
+
         // Load and unload cells as necessary to create a cell grid with "X" and "Y" in the center
         void changeCellGrid(const osg::Vec3f& pos, ESM::ExteriorCellLocation playerCellIndex, bool changeEvent = true);
 
@@ -203,6 +215,18 @@ namespace MWWorld
 
         void testExteriorCells();
         void testInteriorCells();
+
+#ifdef TES3MP_HEADLESS
+        /// Configure the exterior neighborhood radius (1 = 3x3) and empty-cell eviction grace period.
+        void setResidencyConfig(int exteriorRadius, double gracePeriodSeconds);
+
+        /// Pin or unpin a cell by description (e.g. "-2, -9" or "Balmora, Eight Plates") from server scripts.
+        void setCellPinned(std::string_view cellDescription, bool pinned);
+        bool isCellPinned(const CellStore* cell) const;
+
+        /// Maintain the union of active cells from all connected players + pinned cells, with grace-period eviction.
+        void syncCellResidency(const std::vector<ESM::Cell>& occupiedCells, float dt);
+#endif
 
         void reportStats(unsigned int frameNumber, osg::Stats& stats) const;
     };

@@ -11,7 +11,11 @@ namespace mwmp
     class CellController;
     class LocalSystem;
     class LocalPlayer;
+#ifdef TES3MP_HEADLESS
+    class ClientNetworking;
+#else
     class Networking;
+#endif
 
     class Main
     {
@@ -33,7 +37,11 @@ namespace mwmp
 
         static std::string getResDir();
 
+#ifdef TES3MP_HEADLESS
+        ClientNetworking *getNetworking() const;
+#else
         Networking *getNetworking() const;
+#endif
         LocalSystem *getLocalSystem() const;
         LocalPlayer *getLocalPlayer() const;
         GUIController *getGUIController() const;
@@ -50,7 +58,11 @@ namespace mwmp
         Main& operator= (const Main&);
         ///< not implemented
         static Main *pMain;
+#ifdef TES3MP_HEADLESS
+        ClientNetworking *mNetworking;
+#else
         Networking *mNetworking;
+#endif
         LocalSystem *mLocalSystem;
         LocalPlayer *mLocalPlayer;
 

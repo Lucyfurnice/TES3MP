@@ -204,7 +204,8 @@ void Networking::processActorPacket(RakNet::Packet *packet)
 
     if (!ActorProcessor::Process(*packet, baseActorList))
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Unhandled ActorPacket with identifier %i has arrived", packet->data[0]);
-
+    else if (actorSyncCallback && (packet->data[0] == ID_ACTOR_POSITION || packet->data[0] == ID_ACTOR_CELL_CHANGE))
+        actorSyncCallback(packet->data[0], baseActorList);
 }
 
 void Networking::processObjectPacket(RakNet::Packet *packet)
@@ -497,10 +498,89 @@ void signalHandler(int signum)
     }
 }
 
+void Networking::pollOnce()
+{
+    for (RakNet::Packet *packet = peer->Receive(); packet; peer->DeallocatePacket(packet), packet = peer->Receive())
+    {
+        if (getMasterClient() && getMasterClient()->Process(packet))
+            continue;
+
+        switch (packet->data[0])
+        {
+            case ID_REMOTE_DISCONNECTION_NOTIFICATION:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has disconnected", packet->systemAddress.ToString());
+                break;
+            case ID_REMOTE_CONNECTION_LOST:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has lost connection", packet->systemAddress.ToString());
+                break;
+            case ID_REMOTE_NEW_INCOMING_CONNECTION:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has connected", packet->systemAddress.ToString());
+                break;
+            case ID_CONNECTION_REQUEST_ACCEPTED:    // client to server
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Our connection request has been accepted");
+                break;
+            }
+            case ID_NEW_INCOMING_CONNECTION:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "A connection is incoming from %s", packet->systemAddress.ToString());
+                break;
+            case ID_NO_FREE_INCOMING_CONNECTIONS:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "The server is full");
+                break;
+            case ID_DISCONNECTION_NOTIFICATION:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,  "Client at %s has disconnected", packet->systemAddress.ToString());
+                disconnectPlayer(packet->guid);
+                break;
+            case ID_CONNECTION_LOST:
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has lost connection", packet->systemAddress.ToString());
+                disconnectPlayer(packet->guid);
+                break;
+            case ID_SND_RECEIPT_ACKED:
+            case ID_CONNECTED_PING:
+            case ID_UNCONNECTED_PING:
+                break;
+            default:
+            {
+                RakNet::BitStream bsIn(&packet->data[1], packet->length, false);
+                bsIn.IgnoreBytes((unsigned int) RakNet::RakNetGUID::size()); // Ignore GUID from received packet
+
+                if (Players::doesPlayerExist(packet->guid))
+                    update(packet, bsIn);
+                else
+                    preInit(packet, bsIn);
+                break;
+            }
+        }
+    }
+}
+
+void Networking::tickTimers()
+{
+    TimerAPI::Tick();
+}
+
+void Networking::terminateTimers()
+{
+    TimerAPI::Terminate();
+}
+
+bool Networking::isRunning() const
+{
+    return running && !killLoop;
+}
+
+int Networking::getExitCode() const
+{
+    return exitCode;
+}
+
+void Networking::setActorSyncCallback(std::function<void(unsigned char, const BaseActorList&)> callback)
+{
+    actorSyncCallback = std::move(callback);
+}
+
 int Networking::mainLoop()
 {
-    RakNet::Packet *packet;
-
 #ifndef _WIN32
     struct sigaction sigIntHandler;
     
@@ -517,64 +597,12 @@ int Networking::mainLoop()
 #endif
         if (kbhit() && getch() == '\n')
             break;
-        for (packet=peer->Receive(); packet; peer->DeallocatePacket(packet), packet=peer->Receive())
-        {
-            if (getMasterClient()->Process(packet))
-                continue;
-
-            switch (packet->data[0])
-            {
-                case ID_REMOTE_DISCONNECTION_NOTIFICATION:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has disconnected", packet->systemAddress.ToString());
-                    break;
-                case ID_REMOTE_CONNECTION_LOST:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has lost connection", packet->systemAddress.ToString());
-                    break;
-                case ID_REMOTE_NEW_INCOMING_CONNECTION:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has connected", packet->systemAddress.ToString());
-                    break;
-                case ID_CONNECTION_REQUEST_ACCEPTED:    // client to server
-                {
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Our connection request has been accepted");
-                    break;
-                }
-                case ID_NEW_INCOMING_CONNECTION:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "A connection is incoming from %s", packet->systemAddress.ToString());
-                    break;
-                case ID_NO_FREE_INCOMING_CONNECTIONS:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "The server is full");
-                    break;
-                case ID_DISCONNECTION_NOTIFICATION:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,  "Client at %s has disconnected", packet->systemAddress.ToString());
-                    disconnectPlayer(packet->guid);
-                    break;
-                case ID_CONNECTION_LOST:
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Client at %s has lost connection", packet->systemAddress.ToString());
-                    disconnectPlayer(packet->guid);
-                    break;
-                case ID_SND_RECEIPT_ACKED:
-                case ID_CONNECTED_PING:
-                case ID_UNCONNECTED_PING:
-                    break;
-                default:
-                {
-                    RakNet::BitStream bsIn(&packet->data[1], packet->length, false);
-                    bsIn.IgnoreBytes((unsigned int) RakNet::RakNetGUID::size()); // Ignore GUID from received packet
-
-
-                    if (Players::doesPlayerExist(packet->guid))
-                        update(packet, bsIn);
-                    else
-                        preInit(packet, bsIn);
-                    break;
-                }
-            }
-        }
-        TimerAPI::Tick();
+        pollOnce();
+        tickTimers();
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    TimerAPI::Terminate();
+    terminateTimers();
     return exitCode;
 }
 

@@ -591,6 +591,10 @@ namespace MWWorld
     {
         if (!cell)
             cell = mWorldScene->getCurrentCell();
+#ifdef TES3MP_HEADLESS
+        if (!cell)
+            return {};
+#endif
         return getCellName(*cell->getCell());
     }
 

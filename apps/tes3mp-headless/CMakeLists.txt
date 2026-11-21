@@ -249,6 +249,91 @@ set(HEADLESS_SIM_SOURCES
     ../openmw/mwrender/landmanager.cpp
 )
 
+set(HEADLESS_SERVER_SOURCES
+    ../openmw-mp/Player.cpp
+    ../openmw-mp/Networking.cpp
+    ../openmw-mp/MasterClient.cpp
+    ../openmw-mp/Cell.cpp
+    ../openmw-mp/CellController.cpp
+    ../openmw-mp/Utils.cpp
+    ../openmw-mp/Script/Script.cpp
+    ../openmw-mp/Script/ScriptFunction.cpp
+    ../openmw-mp/Script/ScriptFunctions.cpp
+    ../openmw-mp/Script/Functions/Actors.cpp
+    ../openmw-mp/Script/Functions/Objects.cpp
+    ../openmw-mp/Script/Functions/Miscellaneous.cpp
+    ../openmw-mp/Script/Functions/Worldstate.cpp
+    ../openmw-mp/Script/Functions/Books.cpp
+    ../openmw-mp/Script/Functions/Cells.cpp
+    ../openmw-mp/Script/Functions/CharClass.cpp
+    ../openmw-mp/Script/Functions/Chat.cpp
+    ../openmw-mp/Script/Functions/Dialogue.cpp
+    ../openmw-mp/Script/Functions/Factions.cpp
+    ../openmw-mp/Script/Functions/GUI.cpp
+    ../openmw-mp/Script/Functions/Items.cpp
+    ../openmw-mp/Script/Functions/Mechanics.cpp
+    ../openmw-mp/Script/Functions/Positions.cpp
+    ../openmw-mp/Script/Functions/Quests.cpp
+    ../openmw-mp/Script/Functions/RecordsDynamic.cpp
+    ../openmw-mp/Script/Functions/Server.cpp
+    ../openmw-mp/Script/Functions/Settings.cpp
+    ../openmw-mp/Script/Functions/Shapeshift.cpp
+    ../openmw-mp/Script/Functions/Spells.cpp
+    ../openmw-mp/Script/Functions/Stats.cpp
+    ../openmw-mp/Script/Functions/Timer.cpp
+    ../openmw-mp/Script/API/TimerAPI.cpp
+    ../openmw-mp/Script/API/PublicFnAPI.cpp
+    ../openmw-mp/Script/LangLua/LangLua.cpp
+    ../openmw-mp/Script/LangLua/LuaFunc.cpp
+    ../openmw-mp/Script/LangNative/LangNative.cpp
+    ../openmw-mp/processors/ProcessorInitializer.cpp
+    ../openmw-mp/processors/PlayerProcessor.cpp
+    ../openmw-mp/processors/ActorProcessor.cpp
+    ../openmw-mp/processors/ObjectProcessor.cpp
+    ../openmw-mp/processors/WorldstateProcessor.cpp
+)
+
+add_library(tes3mp-headless-server STATIC
+    ${HEADLESS_SERVER_SOURCES}
+)
+
+set_target_properties(tes3mp-headless-server PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+target_compile_definitions(tes3mp-headless-server PRIVATE
+    TES3MP_HEADLESS
+    ENABLE_LUA
+    $<$<BOOL:${WIN32}>:_USE_MATH_DEFINES>
+)
+
+target_compile_options(tes3mp-headless-server PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/permissive->
+    $<$<CXX_COMPILER_ID:MSVC>:/templateDepth:2048>
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>
+    $<$<BOOL:${UNIX}>:-Wno-ignored-qualifiers>
+)
+
+target_include_directories(tes3mp-headless-server PRIVATE
+    ${CMAKE_SOURCE_DIR}/apps/openmw-mp
+    ${CMAKE_SOURCE_DIR}/extern
+    ${RakNet_INCLUDES}
+    ${LUA_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/extern/LuaBridge
+    ${CMAKE_SOURCE_DIR}/extern/PicoSHA2
+)
+
+target_link_libraries(tes3mp-headless-server PRIVATE
+    components
+    ${RakNet_LIBRARY}
+    ${LUA_LIBRARIES}
+    LuaBridge
+    PicoSHA2
+    $<$<BOOL:${UNIX}>:dl>
+)
+
 set(HEADLESS_STUB_SOURCES
     stubs/headlesswindowmanager.hpp
     stubs/headlesswindowmanager.cpp
@@ -265,6 +350,8 @@ set(HEADLESS_STUB_SOURCES
 set(HEADLESS_ENGINE_SOURCES
     headlessengine.hpp
     headlessengine.cpp
+    server/headlessserver.hpp
+    server/headlessserver.cpp
     main.cpp
 )
 
@@ -280,7 +367,13 @@ set_target_properties(tes3mp-headless PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-target_compile_definitions(tes3mp-headless PRIVATE TES3MP_HEADLESS)
+target_compile_definitions(tes3mp-headless PRIVATE TES3MP_HEADLESS ENABLE_LUA)
+
+set_source_files_properties(
+    server/headlessserver.cpp
+    PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/apps/openmw-mp;${LUA_INCLUDE_DIR};${CMAKE_SOURCE_DIR}/extern/LuaBridge"
+)
 
 target_include_directories(tes3mp-headless PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -290,10 +383,13 @@ target_include_directories(tes3mp-headless PRIVATE
 )
 
 # Explicitly link simulation, OSG data/DB/Util, Bullet/Recast (via components),
-# SDL2 (timer/events), and RakNet; exclude MyGUI, OpenGL, osgViewer, OpenAL, FFmpeg.
+# SDL2 (timer/events), RakNet, and embedded tes3mp-server runtime; exclude MyGUI, OpenGL, osgViewer, OpenAL, FFmpeg.
 target_link_libraries(tes3mp-headless PRIVATE
+    tes3mp-headless-server
     components
     ${RakNet_LIBRARY}
+    ${LUA_LIBRARIES}
+    LuaBridge
     Base64
     PicoSHA2
     Boost::program_options

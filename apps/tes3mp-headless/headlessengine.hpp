@@ -78,6 +78,7 @@ namespace TES3MPHeadless
     class HeadlessWindowManager;
     class HeadlessSoundManager;
     class HeadlessInputManager;
+    class HeadlessServer;
 
     /// Configuration options for launching the headless simulation host.
     struct HeadlessConfig
@@ -87,11 +88,15 @@ namespace TES3MPHeadless
         std::vector<std::string> mGroundcoverFiles;
         Files::PathContainer mDataDirs;
         std::filesystem::path mResourceDir;
+        std::filesystem::path mServerCfgPath;
         std::string mStartCell;
         ToUTF8::FromType mEncoding = ToUTF8::WINDOWS_1252;
         uint16_t mPort = 25565;
+        bool mHasPortOverride = false;
         double mTickRate = 60.0;
         uint64_t mMaxTicks = 0; // 0 = run indefinitely until signal/quit
+        int mCellRadius = 1; // 1 = 3x3 exterior cell neighborhood per player
+        double mCellGracePeriod = 20.0; // seconds before empty unpinned cells unload
         int mPreloadThreads = 1;
         unsigned int mRandomSeed = 0;
         int mWarningsMode = 0;
@@ -156,6 +161,7 @@ namespace TES3MPHeadless
         std::unique_ptr<MWDialogue::DialogueManager> mDialogueManager;
         std::unique_ptr<MWLua::LuaManager> mLuaManager;
         std::unique_ptr<MWLua::Worker> mLuaWorker;
+        std::unique_ptr<HeadlessServer> mServer;
 
         osg::ref_ptr<osg::Stats> mStats;
         const osg::Timer* mTimer = nullptr;
