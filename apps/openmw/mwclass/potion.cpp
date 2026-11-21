@@ -1,7 +1,9 @@
 #include "potion.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -88,6 +90,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Potion::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Potion>* ref = ptr.get<ESM::Potion>();
 
         MWGui::ToolTipInfo info;
@@ -118,6 +123,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     std::unique_ptr<MWWorld::Action> Potion::use(const MWWorld::Ptr& ptr, bool force) const

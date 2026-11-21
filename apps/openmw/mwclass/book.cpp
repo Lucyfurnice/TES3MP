@@ -1,7 +1,9 @@
 #include "book.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadsoun.hpp>
@@ -105,6 +107,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Book::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Book>* ref = ptr.get<ESM::Book>();
 
         MWGui::ToolTipInfo info;
@@ -128,6 +133,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     ESM::RefId Book::getEnchantment(const MWWorld::ConstPtr& ptr) const

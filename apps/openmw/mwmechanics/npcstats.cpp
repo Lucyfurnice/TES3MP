@@ -11,7 +11,9 @@
 
 #include <components/misc/strings/format.hpp>
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
+#endif
 
 #include "../mwworld/esmstore.hpp"
 

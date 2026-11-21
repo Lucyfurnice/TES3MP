@@ -11,7 +11,9 @@
 #include <components/lua/luastate.hpp>
 #include <components/lua/scripttracker.hpp>
 #include <components/lua/storage.hpp>
+#ifndef TES3MP_HEADLESS
 #include <components/lua_ui/resources.hpp>
+#endif
 #include <components/misc/color.hpp>
 
 #include "../mwbase/luamanager.hpp"
@@ -168,7 +170,9 @@ namespace MWLua
             };
         }
 
+#ifndef TES3MP_HEADLESS
         LuaUi::ResourceManager* uiResourceManager() { return &mUiResourceManager; }
+#endif
 
         bool isProcessingInputEvents() const { return mProcessingInputEvents; }
 
@@ -199,7 +203,9 @@ namespace MWLua
         bool mRunningSynchronizedUpdates = false;
         LuaUtil::ScriptsConfiguration mConfiguration;
         LuaUtil::LuaState mLua;
+#ifndef TES3MP_HEADLESS
         LuaUi::ResourceManager mUiResourceManager;
+#endif
         std::map<std::string, sol::object> mLocalPackages;
         std::map<std::string, sol::object> mPlayerPackages;
 

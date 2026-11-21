@@ -1,7 +1,9 @@
 #include "esm4base.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/sceneutil/positionattitudetransform.hpp>
 
@@ -34,8 +36,12 @@ namespace MWClass
 
     MWGui::ToolTipInfo ESM4Impl::getToolTipInfo(std::string_view name, int count)
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         MWGui::ToolTipInfo info;
         info.caption = MyGUI::TextIterator::toTagsString(MyGUI::UString(name)) + MWGui::ToolTips::getCountString(count);
         return info;
+#endif
     }
 }

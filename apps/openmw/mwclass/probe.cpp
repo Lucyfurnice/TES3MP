@@ -1,7 +1,9 @@
 #include "probe.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadprob.hpp>
@@ -97,6 +99,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Probe::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Probe>* ref = ptr.get<ESM::Probe>();
 
         MWGui::ToolTipInfo info;
@@ -122,6 +127,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     std::unique_ptr<MWWorld::Action> Probe::use(const MWWorld::Ptr& ptr, bool force) const

@@ -20,7 +20,11 @@
     Include additional headers for multiplayer purposes
 */
 #include <components/openmw-mp/TimedLog.hpp>
+#ifdef TES3MP_HEADLESS
+#include "../mwbase/windowmanager.hpp"
+#else
 #include "../mwgui/windowmanagerimp.hpp"
+#endif
 #include "../mwmp/Main.hpp"
 #include "../mwmp/LocalPlayer.hpp"
 /*

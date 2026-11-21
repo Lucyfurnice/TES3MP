@@ -38,7 +38,11 @@
 #include "../mwmp/Networking.hpp"
 #include "../mwmp/ActorList.hpp"
 #include "../mwmp/MechanicsHelper.hpp"
+#ifdef TES3MP_HEADLESS
+#include "../mwbase/windowmanager.hpp"
+#else
 #include "../mwgui/windowmanagerimp.hpp"
+#endif
 /*
     End of tes3mp addition
 */

@@ -1,7 +1,9 @@
 #include "apparatus.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -86,6 +88,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Apparatus::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Apparatus>* ref = ptr.get<ESM::Apparatus>();
 
         MWGui::ToolTipInfo info;
@@ -106,6 +111,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     std::unique_ptr<MWWorld::Action> Apparatus::use(const MWWorld::Ptr& ptr, bool force) const

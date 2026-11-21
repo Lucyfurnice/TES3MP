@@ -1,7 +1,9 @@
 #include "container.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/containerstate.hpp>
 #include <components/esm3/loadcont.hpp>
@@ -249,6 +251,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Container::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Container>* ref = ptr.get<ESM::Container>();
 
         MWGui::ToolTipInfo info;
@@ -278,6 +283,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     float Container::getCapacity(const MWWorld::Ptr& ptr) const

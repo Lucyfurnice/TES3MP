@@ -57,7 +57,7 @@ list(APPEND COMPONENT_FILES "${OpenMW_BINARY_DIR}/${OSG_PLUGIN_CHECKER_CPP_FILE}
 
 # source files
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (lua
     luastate scriptscontainer asyncpackage utilpackage serialization configuration l10n storage utf8
     shapes/box inputactions yamlloader scripttracker luastateptr
@@ -112,7 +112,7 @@ add_component_dir (settings
     windowmode
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (bgsm
     stream file
     )
@@ -181,7 +181,7 @@ add_component_dir(esm attr common defs esmcommon records util format refid esmbr
     exteriorcelllocation
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir(esm luascripts)
 
 add_component_dir(fx pass technique lexer lexertypes parseconstants widgets stateupdater)
@@ -203,7 +203,7 @@ add_component_dir (esm3
     refnum actoridconverter
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (esmterrain
     gridsampling
     storage
@@ -318,7 +318,7 @@ add_component_dir (misc/strings
     algorithm conversion format lower
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (stereo
     frustum multiview stereomanager types
     )
@@ -362,7 +362,7 @@ add_component_dir (translation
     translation
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (terrain
     storage world buffercache defs terraingrid material terraindrawable texturemanager chunkmanager compositemaprenderer
     quadtreeworld quadtreenode viewdata cellborder view heightcull
@@ -478,7 +478,7 @@ add_component_dir(detournavigator
     collisionshapetype
     )
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 add_component_dir (lua_ui
     registerscriptsettings scriptsettings
     properties widget element util layers content alignment resources
@@ -657,7 +657,7 @@ if (USE_QT)
 
 endif()
 
-if ((BUILD_OPENMW OR BUILD_OPENCS) AND MSVC)
+if ((BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS) AND MSVC)
     # these TUs take a lot of memory for codegen
     # in CI, they often go over the 8GB memory limit if another cl.exe is running at the same time
     # this option (make sure you're not looking at the docs for the identically-named linker option) stops four codegen threads being spun off
@@ -672,7 +672,7 @@ endif()
 
 include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
-if ((BUILD_OPENMW OR BUILD_OPENCS) AND OPENMW_USE_SYSTEM_SQLITE3)
+if ((BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS) AND OPENMW_USE_SYSTEM_SQLITE3)
     find_package(SQLite3 REQUIRED)
     if(NOT TARGET SQLite3::SQLite3) # CMake < 4.3
         add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
@@ -689,13 +689,13 @@ if (APPLE)
     target_compile_definitions(components PUBLIC GL_SILENCE_DEPRECATION=1)
 endif()
 
-if (WIN32 AND (BUILD_OPENMW OR BUILD_OPENCS))
+if (WIN32 AND (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS))
     set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/sceneutil/util.cpp PROPERTIES
         COMPILE_DEFINITIONS "GL_COMPRESSED_SRGB_S3TC_DXT1_EXT=0x8C4C;GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT=0x8C4D;GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT=0x8C4E;GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT=0x8C4F"
     )
 endif()
 
-if (BUILD_OPENMW OR BUILD_OPENCS)
+if (BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS)
 target_link_libraries(components
     ${COLLADA_DOM_LIBRARIES}
 
@@ -827,7 +827,7 @@ if(USE_QT)
     set_property(TARGET components_qt PROPERTY AUTOUIC_SEARCH_PATHS contentselector)
 endif(USE_QT)
 
-if ((BUILD_OPENMW OR BUILD_OPENCS) AND MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
+if ((BUILD_OPENMW OR BUILD_OPENCS OR BUILD_TES3MP_HEADLESS) AND MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
     target_precompile_headers(components PUBLIC
         <sol/sol.hpp>
 

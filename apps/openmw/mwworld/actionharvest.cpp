@@ -2,7 +2,9 @@
 
 #include <sstream>
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_LanguageManager.h>
+#endif
 
 /*
     Start of tes3mp addition
@@ -125,6 +127,7 @@ namespace MWWorld
 
                 // The two GMST entries below expand to strings informing the player of what, and how many of it has
                 // been added to their inventory
+#ifndef TES3MP_HEADLESS
                 std::string msgBox;
                 if (itemCount == 1)
                 {
@@ -138,6 +141,9 @@ namespace MWWorld
                 }
 
                 stream << msgBox;
+#else
+                stream << '\n' << itemCount << "x " << itemName;
+#endif
             }
             std::string tooltip = stream.str();
             // remove the first newline (easier this way)

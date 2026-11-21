@@ -2,7 +2,9 @@
 
 #include <filesystem>
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_InputManager.h>
+#endif
 #include <osg/Stats>
 
 #include <sol/object.hpp>
@@ -19,8 +21,10 @@
 
 #include <components/l10n/manager.hpp>
 
+#ifndef TES3MP_HEADLESS
 #include <components/lua_ui/registerscriptsettings.hpp>
 #include <components/lua_ui/util.hpp>
+#endif
 
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -91,7 +95,9 @@ namespace MWLua
 
     LuaManager::~LuaManager()
     {
+#ifndef TES3MP_HEADLESS
         LuaUi::clearSettings();
+#endif
     }
 
     void LuaManager::initConfiguration(bool reload)
@@ -384,8 +390,10 @@ namespace MWLua
 
     void LuaManager::clear()
     {
+#ifndef TES3MP_HEADLESS
         LuaUi::clearGameInterface();
         mUiResourceManager.clear();
+#endif
         MWBase::Environment::get().getWorld()->getPostProcessor()->disableDynamicShaders();
         mActiveLocalScripts.clear();
         mLuaEvents.clear();
@@ -662,8 +670,12 @@ namespace MWLua
 
     void LuaManager::inputEvent(const InputEvent& event)
     {
+#ifdef TES3MP_HEADLESS
+        if (!MWBase::Environment::get().getWindowManager()->isConsoleMode())
+#else
         if (!MyGUI::InputManager::getInstance().isModalAny()
             && !MWBase::Environment::get().getWindowManager()->isConsoleMode())
+#endif
         {
             mInputEvents.push_back(event);
         }
@@ -799,12 +811,16 @@ namespace MWLua
     {
         Log(Debug::Info) << "Reload Lua";
 
+#ifndef TES3MP_HEADLESS
         LuaUi::clearGameInterface();
         LuaUi::clearMenuInterface();
         LuaUi::clearSettings();
+#endif
         MWBase::Environment::get().getWindowManager()->setConsoleMode("");
         MWBase::Environment::get().getL10nManager()->dropCache();
+#ifndef TES3MP_HEADLESS
         mUiResourceManager.clear();
+#endif
         mLua.dropScriptCache();
         mInputActions.clear(true);
         mInputTriggers.clear(true);

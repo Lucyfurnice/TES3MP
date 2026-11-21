@@ -7,7 +7,9 @@
 #include <osg/Group>
 #include <osg/Timer>
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
+#endif
 
 #include <LinearMath/btAabbUtil2.h>
 
@@ -161,7 +163,13 @@ namespace MWWorld
                 const auto filename = filepath.filename();
                 Log(Debug::Info) << "Loading content file " << filename;
                 if (listener != nullptr)
+                {
+#ifndef TES3MP_HEADLESS
                     listener->setLabel(MyGUI::TextIterator::toTagsString(Files::pathToUnicodeString(filename)));
+#else
+                    listener->setLabel(Files::pathToUnicodeString(filename));
+#endif
+                }
                 it->second->load(filepath, index, listener);
             }
             else

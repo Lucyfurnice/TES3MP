@@ -1,7 +1,9 @@
 #include "armor.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadgmst.hpp>
@@ -228,6 +230,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Armor::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
         MWGui::ToolTipInfo info;
@@ -288,6 +293,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     ESM::RefId Armor::getEnchantment(const MWWorld::ConstPtr& ptr) const

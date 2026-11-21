@@ -1,7 +1,9 @@
 #include "creature.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/creaturestate.hpp>
 #include <components/esm3/loadclas.hpp>
@@ -583,6 +585,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Creature::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Creature>* ref = ptr.get<ESM::Creature>();
 
         MWGui::ToolTipInfo info;
@@ -593,6 +598,7 @@ namespace MWClass
             info.extra += MWGui::ToolTips::getMiscString(ref->mBase->mScript.getRefIdString(), "Script");
 
         return info;
+#endif
     }
 
     float Creature::getArmorRating(const MWWorld::Ptr& ptr, bool useLuaInterfaceIfAvailable) const

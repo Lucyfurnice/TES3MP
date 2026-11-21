@@ -1,7 +1,9 @@
 #include "clothing.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -148,6 +150,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Clothing::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
 
         MWGui::ToolTipInfo info;
@@ -173,6 +178,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     ESM::RefId Clothing::getEnchantment(const MWWorld::ConstPtr& ptr) const

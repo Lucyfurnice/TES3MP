@@ -2,7 +2,9 @@
 
 #include <stdexcept>
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_LanguageManager.h>
+#endif
 
 #include <components/debug/debuglog.hpp>
 
@@ -164,6 +166,7 @@ namespace MWScript
                 // Spawn a messagebox (only for items added to player's inventory and if player is talking to someone)
                 if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
                 {
+#ifndef TES3MP_HEADLESS
                     // The two GMST entries below expand to strings informing the player of what, and how many of it has
                     // been added to their inventory
                     std::string msgBox;
@@ -179,6 +182,7 @@ namespace MWScript
                         msgBox = ::Misc::StringUtils::format(msgBox, count, itemName);
                     }
                     MWBase::Environment::get().getWindowManager()->messageBox(msgBox, MWGui::ShowInDialogueMode_Only);
+#endif
                 }
             }
         };
@@ -285,6 +289,7 @@ namespace MWScript
                 // Spawn a messagebox (only for items removed from player's inventory)
                 if ((numRemoved > 0) && (ptr == MWMechanics::getPlayer()))
                 {
+#ifndef TES3MP_HEADLESS
                     // The two GMST entries below expand to strings informing the player of what, and how many of it has
                     // been removed from their inventory
                     std::string msgBox;
@@ -300,6 +305,7 @@ namespace MWScript
                         msgBox = ::Misc::StringUtils::format(msgBox, itemName);
                     }
                     MWBase::Environment::get().getWindowManager()->messageBox(msgBox, MWGui::ShowInDialogueMode_Only);
+#endif
                 }
             }
         };

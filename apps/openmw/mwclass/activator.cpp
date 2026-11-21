@@ -1,7 +1,9 @@
 #include "activator.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadcrea.hpp>
@@ -98,6 +100,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Activator::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Activator>* ref = ptr.get<ESM::Activator>();
 
         MWGui::ToolTipInfo info;
@@ -111,6 +116,7 @@ namespace MWClass
         }
 
         return info;
+#endif
     }
 
     std::unique_ptr<MWWorld::Action> Activator::activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const

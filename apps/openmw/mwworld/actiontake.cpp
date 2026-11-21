@@ -17,7 +17,9 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include "../mwgui/inventorywindow.hpp"
+#endif
 
 #include "class.hpp"
 #include "containerstore.hpp"
@@ -31,6 +33,7 @@ namespace MWWorld
 
     void ActionTake::executeImp(const Ptr& actor)
     {
+#ifndef TES3MP_HEADLESS
         // When in GUI mode, we should use drag and drop
         if (actor == MWBase::Environment::get().getWorld()->getPlayerPtr())
         {
@@ -41,6 +44,7 @@ namespace MWWorld
                 return;
             }
         }
+#endif
 
         int count = getTarget().getCellRef().getCount();
         if (getTarget().getClass().isGold(getTarget()))

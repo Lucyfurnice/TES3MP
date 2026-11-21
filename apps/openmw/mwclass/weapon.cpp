@@ -1,7 +1,9 @@
 #include "weapon.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadweap.hpp>
@@ -143,6 +145,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Weapon::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Weapon>* ref = ptr.get<ESM::Weapon>();
         const ESM::WeaponType* weaponType = MWMechanics::getWeaponType(ref->mBase->mData.mType);
 
@@ -244,6 +249,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     ESM::RefId Weapon::getEnchantment(const MWWorld::ConstPtr& ptr) const

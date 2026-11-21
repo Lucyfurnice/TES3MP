@@ -1,7 +1,9 @@
 #include "misc.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadmisc.hpp>
@@ -134,6 +136,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Miscellaneous::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Miscellaneous>* ref = ptr.get<ESM::Miscellaneous>();
 
         MWGui::ToolTipInfo info;
@@ -168,6 +173,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     static MWWorld::Ptr createGold(MWWorld::CellStore& cell, int goldAmount)

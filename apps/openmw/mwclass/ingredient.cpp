@@ -1,7 +1,9 @@
 #include "ingredient.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -101,6 +103,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Ingredient::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Ingredient>* ref = ptr.get<ESM::Ingredient>();
 
         MWGui::ToolTipInfo info;
@@ -147,6 +152,7 @@ namespace MWClass
         info.isIngredient = true;
 
         return info;
+#endif
     }
 
     MWWorld::Ptr Ingredient::copyToCellImpl(const MWWorld::ConstPtr& ptr, MWWorld::CellStore& cell) const

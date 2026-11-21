@@ -1,7 +1,9 @@
 #include "door.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#endif
 
 #include <components/esm3/doorstate.hpp>
 #include <components/esm3/loaddoor.hpp>
@@ -261,6 +263,9 @@ namespace MWClass
 
     MWGui::ToolTipInfo Door::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
     {
+#ifdef TES3MP_HEADLESS
+        return {};
+#else
         const MWWorld::LiveCellRef<ESM::Door>* ref = ptr.get<ESM::Door>();
 
         MWGui::ToolTipInfo info;
@@ -294,6 +299,7 @@ namespace MWClass
         info.text = std::move(text);
 
         return info;
+#endif
     }
 
     std::string Door::getDestination(const MWWorld::LiveCellRef<ESM::Door>& door)

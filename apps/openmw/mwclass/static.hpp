@@ -4,7 +4,9 @@
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/registeredclass.hpp"
 
+#ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
+#endif
 
 namespace MWClass
 {
