@@ -60,6 +60,7 @@ namespace mwmp
         std::map<std::string, DedicatedActor *> dedicatedActors;
 
         float updateTimer;
+        bool mLoggedFirstAuthoritativePos = false;
     };
 }
 

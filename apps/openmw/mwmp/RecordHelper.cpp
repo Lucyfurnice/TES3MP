@@ -4,9 +4,11 @@
 #include "../mwworld/worldimp.hpp"
 
 #include "RecordHelper.hpp"
+#ifndef TES3MP_HEADLESS
 #include "Main.hpp"
 #include "CellController.hpp"
 #include "Cell.hpp"
+#endif
 
 void RecordHelper::overrideRecord(const mwmp::ActivatorRecord& record)
 {
@@ -343,10 +345,14 @@ void RecordHelper::overrideRecord(const mwmp::CellRecord& record)
 
     if (isActiveCell)
     {
+#ifndef TES3MP_HEADLESS
         mwmp::Main::get().getCellController()->uninitializeCell(recordData);
 
         // Change to temporary holding interior cell
         world->changeToInteriorCell(RecordHelper::getPlaceholderInteriorCellName(), playerPos, true, true);
+#else
+        world->unloadCell(recordData);
+#endif
     }
 
     if (record.baseId.empty())
@@ -388,6 +394,7 @@ void RecordHelper::overrideRecord(const mwmp::CellRecord& record)
     }
 
     // Move the player back to the cell they were in
+#ifndef TES3MP_HEADLESS
     if (isActiveCell)
     {
         if (playerCell.isExterior())
@@ -395,6 +402,7 @@ void RecordHelper::overrideRecord(const mwmp::CellRecord& record)
         else
             world->changeToInteriorCell(playerCell.mName, playerPos, true, true);
     }
+#endif
 }
 
 void RecordHelper::overrideRecord(const mwmp::ClothingRecord& record)

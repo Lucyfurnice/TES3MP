@@ -103,6 +103,8 @@ namespace DetourNavigator
             mWorldspace = worldspace;
         }
 
+        mPlayerTile.reset();
+
         const TilePosition playerTile = toNavMeshTilePosition(mSettings.mRecast, playerPosition);
 
         mRecastMeshManager.setRange(makeRange(mSettings, worldspace, cellGridBounds, mMaxRadius, playerTile), guard);

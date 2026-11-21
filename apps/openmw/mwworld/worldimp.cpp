@@ -269,6 +269,10 @@ namespace MWWorld
             std::error_code ec;
             std::filesystem::create_directories(navmeshDir, ec);
             mNavigator = DetourNavigator::makeNavigator(navigatorSettings, navmeshDir, "tes3mp-headless-navmesh.db");
+            mNavigator->addAgent(DetourNavigator::AgentBounds{
+                Settings::game().mActorCollisionShapeType,
+                Settings::game().mDefaultActorPathfindHalfExtents,
+            });
 #else
             mNavigator = DetourNavigator::makeNavigator(navigatorSettings, mUserDataPath);
 #endif
@@ -1528,13 +1532,24 @@ namespace MWWorld
             osg::Vec2i gridCenter(0, 0);
             if (obs.mIsExterior)
             {
-                const ESM::ExteriorCellLocation loc
-                    = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), obs.mWorldspace);
-                gridCenter = osg::Vec2i(loc.mX, loc.mY);
+                if (obs.mCell && obs.mCell->isExterior())
+                {
+                    gridCenter = osg::Vec2i(obs.mCell->getCell()->getGridX(), obs.mCell->getCell()->getGridY());
+                }
+                else
+                {
+                    const ESM::ExteriorCellLocation loc
+                        = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), obs.mWorldspace);
+                    gridCenter = osg::Vec2i(loc.mX, loc.mY);
+                }
             }
 
-            if (!mHasLastNavBounds || mLastNavWorldspace != obs.mWorldspace || mLastNavIsExterior != obs.mIsExterior
-                || (obs.mIsExterior && mLastNavGridCenter != gridCenter))
+            const bool worldspaceChanged = !mHasLastNavBounds || mLastNavWorldspace != obs.mWorldspace;
+            const bool boundsChanged = worldspaceChanged
+                || mLastNavIsExterior != obs.mIsExterior || (obs.mIsExterior && mLastNavGridCenter != gridCenter);
+            const bool cellLoaded = mWorldScene->hasCellLoaded();
+
+            if (boundsChanged)
             {
                 std::optional<DetourNavigator::CellGridBounds> bounds;
                 if (obs.mIsExterior)
@@ -1551,7 +1566,56 @@ namespace MWWorld
                 mHasLastNavBounds = true;
             }
 
+            if (boundsChanged || cellLoaded)
+            {
+                mWorldScene->repopulateNavigatorWorldspace(
+                    obs.mWorldspace, worldspaceChanged, navigatorUpdateGuard.get());
+                mWorldScene->resetCellLoaded();
+            }
+
             mNavigator->update(obs.mPosition, navigatorUpdateGuard.get());
+            if (boundsChanged || cellLoaded)
+            {
+                navigatorUpdateGuard.reset();
+                mNavigator->wait(DetourNavigator::WaitConditionType::allJobsDone, nullptr);
+            }
+            return;
+        }
+        else
+        {
+            if (!mHasLastNavBounds)
+            {
+                if (const CellStore* currentCell = mWorldScene->getCurrentCell())
+                {
+                    mNavigator->setUpdatesEnabled(true);
+                    const ESM::RefId worldspace = currentCell->getCell()->getWorldSpace();
+                    const bool isExterior = currentCell->isExterior();
+                    std::optional<DetourNavigator::CellGridBounds> bounds;
+                    osg::Vec2i gridCenter(0, 0);
+                    osg::Vec3f centerPos = getPlayerPtr().getRefData().getPosition().asVec3();
+                    if (isExterior)
+                    {
+                        gridCenter = osg::Vec2i(currentCell->getCell()->getGridX(), currentCell->getCell()->getGridY());
+                        bounds = DetourNavigator::CellGridBounds{
+                            .mCenter = gridCenter,
+                            .mHalfSize = std::max(0, mWorldScene->getResidencyRadius()),
+                        };
+                        const float cellSize = ESM::getCellSize(worldspace);
+                        centerPos.x() = (gridCenter.x() + 0.5f) * cellSize;
+                        centerPos.y() = (gridCenter.y() + 0.5f) * cellSize;
+                    }
+                    mNavigator->updateBounds(worldspace, bounds, centerPos, navigatorUpdateGuard.get());
+                    mLastNavWorldspace = worldspace;
+                    mLastNavGridCenter = gridCenter;
+                    mLastNavIsExterior = isExterior;
+                    mHasLastNavBounds = true;
+                    mWorldScene->repopulateNavigatorWorldspace(worldspace, true, navigatorUpdateGuard.get());
+                    mWorldScene->resetCellLoaded();
+                    mNavigator->update(centerPos, navigatorUpdateGuard.get());
+                    navigatorUpdateGuard.reset();
+                    mNavigator->wait(DetourNavigator::WaitConditionType::allJobsDone, nullptr);
+                }
+            }
             return;
         }
 #endif
@@ -1752,13 +1816,27 @@ namespace MWWorld
 
         if (mWorldScene->hasCellLoaded())
         {
-#ifndef TES3MP_HEADLESS
+#ifdef TES3MP_HEADLESS
+            mNavigator->wait(DetourNavigator::WaitConditionType::requiredTilesPresent, nullptr);
+#else
             mNavigator->wait(DetourNavigator::WaitConditionType::requiredTilesPresent,
                 MWBase::Environment::get().getWindowManager()->getLoadingScreen());
 #endif
             mWorldScene->resetCellLoaded();
         }
     }
+
+#ifdef TES3MP_HEADLESS
+    void World::prepareNavigation()
+    {
+        updateNavigator();
+        if (mWorldScene->hasCellLoaded())
+        {
+            mNavigator->wait(DetourNavigator::WaitConditionType::allJobsDone, nullptr);
+            mWorldScene->resetCellLoaded();
+        }
+    }
+#endif
 
     void World::updatePhysics(
         float duration, bool paused, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats)

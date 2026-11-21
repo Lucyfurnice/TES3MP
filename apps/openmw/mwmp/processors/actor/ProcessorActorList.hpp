@@ -26,8 +26,8 @@ namespace mwmp
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(actorList.cell).c_str());
             LOG_APPEND(TimedLog::LOG_VERBOSE, "- action: %i", actorList.action);
 
-            // If we've received a request for information, comply with it
-            if (actorList.action == mwmp::BaseActorList::REQUEST)
+            // If we've received a request for information, comply with it (unless server is authoritative)
+            if (actorList.action == mwmp::BaseActorList::REQUEST && !Main::get().isAuthoritativeServer())
             {
                 MechanicsHelper::spawnLeveledCreatures(ptrCellStore);
                 actorList.sendActorsInCell(ptrCellStore);

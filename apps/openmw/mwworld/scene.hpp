@@ -252,6 +252,11 @@ namespace MWWorld
 
         /// Maintain the union of active cells from all connected players + pinned cells, with grace-period eviction.
         void syncCellResidency(const std::vector<ESM::Cell>& occupiedCells, float dt);
+
+        /// Ensure all active cells belonging to the given worldspace have their collision objects, heightfields,
+        /// water, pathgrids, and actor AgentBounds registered in DetourNavigator after a worldspace/bounds switch.
+        void repopulateNavigatorWorldspace(ESM::RefId worldspace, bool worldspaceChanged,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
 #endif
 
         void reportStats(unsigned int frameNumber, osg::Stats& stats) const;

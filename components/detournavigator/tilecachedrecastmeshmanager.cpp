@@ -151,9 +151,14 @@ namespace DetourNavigator
         ++mRevision;
         mObjectIndex.clear();
         mObjects.clear();
+        mWaterIndex.clear();
         mWater.clear();
+        mInfiniteWater = mWater.end();
+        mHeightfieldIndex.clear();
         mHeightfields.clear();
+        mInfiniteHeightfield = mHeightfields.end();
         mCache.clear();
+        mChangedTiles.clear();
     }
 
     bool TileCachedRecastMeshManager::addObject(ObjectId id, const CollisionShape& shape, const btTransform& transform,

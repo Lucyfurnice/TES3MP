@@ -8,16 +8,29 @@
 #include <MasterClient.hpp>
 #include <Networking.hpp>
 #include <Player.hpp>
+#include <Script/Functions/Actors.hpp>
 #include <Script/Functions/Cells.hpp>
+#include <Script/Functions/Objects.hpp>
+#include <Script/Functions/Positions.hpp>
+#include <Script/Functions/RecordsDynamic.hpp>
 #include <Script/LangLua/LangLua.hpp>
 #include <Script/Script.hpp>
 #include <Utils.hpp>
 
+#include <apps/openmw/mwbase/world.hpp>
+#include <apps/openmw/mwlua/worldbindings.hpp>
+#include <apps/openmw/mwmechanics/aiactivate.hpp>
+#include <apps/openmw/mwmechanics/aicombat.hpp>
+#include <apps/openmw/mwmechanics/aiescort.hpp>
+#include <apps/openmw/mwmechanics/aifollow.hpp>
+#include <apps/openmw/mwmechanics/aitravel.hpp>
+#include <apps/openmw/mwmechanics/aiwander.hpp>
 #include <apps/openmw/mwmechanics/combat.hpp>
 #include <apps/openmw/mwmechanics/creaturestats.hpp>
 #include <apps/openmw/mwmechanics/movement.hpp>
 #include <apps/openmw/mwmechanics/spellcasting.hpp>
 #include <apps/openmw/mwmechanics/weapontype.hpp>
+#include <apps/openmw/mwmp/RecordHelper.hpp>
 #include <apps/openmw/mwphysics/collisiontype.hpp>
 #include <apps/openmw/mwphysics/raycasting.hpp>
 #include <apps/openmw/mwworld/action.hpp>
@@ -34,7 +47,21 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm/exteriorcelllocation.hpp>
+#include <components/esm3/loadacti.hpp>
+#include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadcont.hpp>
+#include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loaddoor.hpp>
+#include <components/esm3/loadench.hpp>
+#include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadmisc.hpp>
+#include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadspel.hpp>
+#include <components/esm3/loadstat.hpp>
 #include <components/esm3/loadweap.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/rng.hpp>
@@ -171,6 +198,102 @@ namespace TES3MPHeadless
                 actor.killer.mpNum = 0;
             }
             return actor;
+        }
+
+        std::uint64_t hashCombine(std::uint64_t seed, std::uint64_t value)
+        {
+            seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+            return seed;
+        }
+
+        std::uint64_t hashEquipmentSlot(std::uint64_t h, const std::string& refId, int count)
+        {
+            h = hashCombine(h, std::hash<std::string>{}(refId));
+            return hashCombine(h, static_cast<std::uint64_t>(count));
+        }
+
+        std::uint64_t computeEquipmentHash(const MWWorld::Ptr& ptr)
+        {
+            std::uint64_t outHash = 1469598103934665603ULL;
+            if (!ptr.getClass().hasInventoryStore(ptr))
+                return outHash;
+
+            MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
+            for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
+            {
+                const MWWorld::ConstContainerStoreIterator it = inv.getSlot(slot);
+                if (it != inv.end())
+                    outHash = hashEquipmentSlot(outHash, it->getCellRef().getRefId().serializeText(), it->getCellRef().getCount());
+                else
+                    outHash = hashEquipmentSlot(outHash, std::string(), 0);
+            }
+            return outHash;
+        }
+
+        void populateActorEquipment(const MWWorld::Ptr& ptr, mwmp::BaseActor& actor, std::uint64_t& outHash)
+        {
+            outHash = 1469598103934665603ULL;
+            if (!ptr.getClass().hasInventoryStore(ptr))
+                return;
+
+            MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
+            for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
+            {
+                mwmp::Item& item = actor.equipmentItems[slot];
+                item = {};
+                const MWWorld::ConstContainerStoreIterator it = inv.getSlot(slot);
+                if (it != inv.end())
+                {
+                    item.refId = it->getCellRef().getRefId().serializeText();
+                    item.count = it->getCellRef().getCount();
+                    item.charge = it->getCellRef().getCharge();
+                    item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+                }
+                outHash = hashEquipmentSlot(outHash, item.refId, item.count);
+            }
+        }
+
+        std::uint64_t computeContainerHash(MWWorld::ContainerStore& store)
+        {
+            std::uint64_t h = 1469598103934665603ULL;
+            for (MWWorld::ConstContainerStoreIterator it = store.cbegin(); it != store.cend(); ++it)
+            {
+                h = hashCombine(h, std::hash<std::string>{}(it->getCellRef().getRefId().serializeText()));
+                h = hashCombine(h, static_cast<std::uint64_t>(it->getCellRef().getCount()));
+            }
+            return h;
+        }
+
+        mwmp::BaseObject buildContainerObject(const MWWorld::Ptr& ptr, MWWorld::ContainerStore& store)
+        {
+            mwmp::BaseObject obj;
+            obj.refId = ptr.getCellRef().getRefId().serializeText();
+            obj.refNum = ptr.getCellRef().getRefNum().mIndex;
+            obj.mpNum = ptr.getCellRef().getMpNum();
+            obj.position = ptr.getRefData().getPosition();
+            for (MWWorld::ConstContainerStoreIterator it = store.cbegin(); it != store.cend(); ++it)
+            {
+                mwmp::ContainerItem ci;
+                ci.refId = it->getCellRef().getRefId().serializeText();
+                ci.count = it->getCellRef().getCount();
+                ci.charge = it->getCellRef().getCharge();
+                ci.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+                ci.soul = it->getCellRef().getSoul().serializeText();
+                ci.actionCount = ci.count;
+                obj.containerItems.push_back(std::move(ci));
+            }
+            return obj;
+        }
+
+        bool isMovableObjectType(const MWWorld::Ptr& ptr)
+        {
+            const unsigned int type = ptr.getType();
+            return type == ESM::Miscellaneous::sRecordId || type == ESM::Weapon::sRecordId
+                || type == ESM::Armor::sRecordId || type == ESM::Clothing::sRecordId
+                || type == ESM::Book::sRecordId || type == ESM::Potion::sRecordId
+                || type == ESM::Ingredient::sRecordId || type == ESM::Apparatus::sRecordId
+                || type == ESM::Lockpick::sRecordId || type == ESM::Probe::sRecordId
+                || type == ESM::Repair::sRecordId || type == ESM::Light::sRecordId;
         }
     }
 
@@ -456,6 +579,30 @@ namespace TES3MPHeadless
             if (cellDesc)
                 mWorld.getWorldScene().setCellPinned(cellDesc, pinned);
         });
+        CellFunctions::SetPartyHandlers(
+            [this](unsigned short leaderPid) { return mCellInstances.createParty(leaderPid); },
+            [this](unsigned int partyId, unsigned short pid) { return mCellInstances.addPlayerToParty(partyId, pid); },
+            [this](unsigned short pid) { return mCellInstances.removePlayerFromParty(pid); },
+            [this](unsigned short pid) { return mCellInstances.getPlayerPartyId(pid); },
+            [this](const char* cellName, bool instanced) {
+                if (cellName)
+                    mCellInstances.setInstancedDungeon(cellName, instanced);
+            },
+            [this](unsigned int partyId, const char* baseCellName) -> std::string {
+                return baseCellName
+                    ? mCellInstances.getOrCreateDungeonInstance(mWorld, partyId, baseCellName, mNetworking.get())
+                    : std::string();
+            });
+        RecordsDynamicFunctions::SetRecordDynamicHandler(
+            [this](const mwmp::BaseWorldstate& ws) { applyDynamicRecords(ws); });
+        ObjectFunctions::SetServerObjectEventHandler(
+            [this](unsigned char packetId, const mwmp::BaseObjectList& list) {
+                handleServerObjectEvent(packetId, list);
+            });
+        ActorFunctions::SetServerActorAIHandler(
+            [this](const mwmp::BaseActorList& list) { handleServerActorAI(list); });
+        MWLua::setHeadlessRecordCreatedCallback(
+            [this](const std::type_info& type, const void* recordPtr) { handleLuaRecordCreated(type, recordPtr); });
 
         mNetworking->postInit();
         mBoundPort = mNetworking->getPort();
@@ -473,6 +620,12 @@ namespace TES3MPHeadless
         mShutDown = true;
 
         CellFunctions::SetCellPinnedHandler(nullptr);
+        CellFunctions::SetPartyHandlers(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        RecordsDynamicFunctions::SetRecordDynamicHandler(nullptr);
+        ObjectFunctions::SetServerObjectEventHandler(nullptr);
+        ActorFunctions::SetServerActorAIHandler(nullptr);
+        MWLua::setHeadlessRecordCreatedCallback(nullptr);
+        mCellInstances.clear();
 
         for (auto& [pid, ptr] : mPlayerAnchors)
         {
@@ -482,8 +635,13 @@ namespace TES3MPHeadless
         mPlayerAnchors.clear();
         mPlayerValidation.clear();
         mActorSnapshots.clear();
+        mContainerSnapshots.clear();
         mPendingActorSyncs.clear();
         mBroadcastAccumulator = 0.0;
+        mAuthoritativeDeltaCount = 0;
+        mDeltaStats = {};
+        mStallBroadcastCycles = 0;
+        mContainerSweepCounter = 0;
 
         if (mNetworking)
         {
@@ -593,6 +751,34 @@ namespace TES3MPHeadless
             obs.mPosition = player->position.asVec3();
             obs.mIsExterior = player->cell.isExterior();
             obs.mCell = resolveCellStore(player->cell);
+            if (obs.mIsExterior)
+            {
+                const ESM::ExteriorCellLocation posCell
+                    = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), ESM::Cell::sDefaultWorldspaceId);
+                if (posCell.mX != player->cell.mData.mX || posCell.mY != player->cell.mData.mY)
+                {
+                    bool usedAnchor = false;
+                    auto anchorIt = mPlayerAnchors.find(player->getId());
+                    if (anchorIt != mPlayerAnchors.end() && !anchorIt->second.isEmpty()
+                        && anchorIt->second.isInCell() && anchorIt->second.getCell()->isExterior())
+                    {
+                        const osg::Vec3f anchorPos = anchorIt->second.getRefData().getPosition().asVec3();
+                        const ESM::ExteriorCellLocation anchorCell = ESM::positionToExteriorCellLocation(
+                            anchorPos.x(), anchorPos.y(), ESM::Cell::sDefaultWorldspaceId);
+                        if (anchorCell.mX == player->cell.mData.mX && anchorCell.mY == player->cell.mData.mY)
+                        {
+                            obs.mPosition = anchorPos;
+                            usedAnchor = true;
+                        }
+                    }
+                    if (!usedAnchor)
+                    {
+                        const float cellSize = ESM::getCellSize(ESM::Cell::sDefaultWorldspaceId);
+                        obs.mPosition.x() = (player->cell.mData.mX + 0.5f) * cellSize;
+                        obs.mPosition.y() = (player->cell.mData.mY + 0.5f) * cellSize;
+                    }
+                }
+            }
             outObservers.push_back(obs);
         }
     }
@@ -602,17 +788,24 @@ namespace TES3MPHeadless
         mPlayersWithKnownCell.insert(player.getId());
         auto& state = mPlayerValidation[player.getId()];
         state.mLastCell = player.cell;
-        state.mLastPos = player.position.asVec3();
         state.mLastUpdate = std::chrono::steady_clock::now();
-        state.mInitialized = true;
+        // Reset initialized flag so the next ID_PLAYER_POSITION establishes the new cell's starting
+        // coordinates instead of comparing old-cell coordinates against a post-teleport/door position.
+        state.mInitialized = false;
     }
 
     bool HeadlessServer::validatePlayerPosition(::Player& player)
     {
+        const unsigned short pid = player.getId();
+        if (player.getLoadState() == Player::POSTLOADED
+            && (!player.cell.isExterior() || player.position.asVec3().length2() > 1.0f))
+        {
+            mPlayersWithKnownCell.insert(pid);
+        }
+
         if (!mConfig.mAuthority.authoritativeMode || !mConfig.mAuthority.validatePlayerMovement)
             return true;
 
-        const unsigned short pid = player.getId();
         auto& state = mPlayerValidation[pid];
         const auto now = std::chrono::steady_clock::now();
         const osg::Vec3f newPos = player.position.asVec3();
@@ -628,7 +821,19 @@ namespace TES3MPHeadless
         {
             const ESM::ExteriorCellLocation posCell
                 = ESM::positionToExteriorCellLocation(newPos.x(), newPos.y(), ESM::Cell::sDefaultWorldspaceId);
-            if (posCell.mX != player.cell.mData.mX || posCell.mY != player.cell.mData.mY)
+            const int dx = std::abs(posCell.mX - player.cell.mData.mX);
+            const int dy = std::abs(posCell.mY - player.cell.mData.mY);
+            if (dx > 1 || dy > 1)
+            {
+                if (sameCell)
+                {
+                    player.position.pos[0] = state.mLastPos.x();
+                    player.position.pos[1] = state.mLastPos.y();
+                    player.position.pos[2] = state.mLastPos.z();
+                }
+                return false;
+            }
+            if (dx > 0 || dy > 0)
                 pendingCellTransition = true;
         }
         else if (state.mInitialized && (newPos - state.mLastPos).length2() > (16384.0f * 16384.0f))
@@ -919,11 +1124,38 @@ namespace TES3MPHeadless
             switch (packetId)
             {
                 case ID_OBJECT_ACTIVATE:
+                    if (targetPtr.getType() == ESM::Door::sRecordId && targetPtr.getCellRef().getTeleport())
+                    {
+                        const std::string destCell = targetPtr.getCellRef().getDestCell().serializeText();
+                        if (mCellInstances.isInstancedDungeon(destCell))
+                        {
+                            const unsigned int partyId = mCellInstances.getOrAssignSoloPartyId(player.getId());
+                            const std::string instanceCell = mCellInstances.getOrCreateDungeonInstance(
+                                mWorld, partyId, destCell, mNetworking.get());
+                            const ESM::Position destPos = targetPtr.getCellRef().getDoorDest();
+                            CellFunctions::SetCell(player.getId(), instanceCell.c_str());
+                            CellFunctions::SendCell(player.getId());
+                            PositionFunctions::SetPos(
+                                player.getId(), destPos.pos[0], destPos.pos[1], destPos.pos[2]);
+                            PositionFunctions::SetRot(player.getId(), destPos.rot[0], destPos.rot[2]);
+                            PositionFunctions::SendPos(player.getId());
+                            return false;
+                        }
+                    }
                     if (!playerAnchor.isEmpty())
                     {
                         if (auto action = targetPtr.getClass().activate(targetPtr, playerAnchor))
                             action->execute(playerAnchor);
                     }
+                    break;
+                case ID_OBJECT_MOVE:
+                    if (isMovableObjectType(targetPtr))
+                        mWorld.moveObject(targetPtr, obj.position.asVec3());
+                    break;
+                case ID_OBJECT_ROTATE:
+                    if (isMovableObjectType(targetPtr))
+                        mWorld.rotateObject(
+                            targetPtr, osg::Vec3f(obj.position.rot[0], obj.position.rot[1], obj.position.rot[2]));
                     break;
                 case ID_DOOR_STATE:
                     if (targetPtr.getType() == ESM::Door::sRecordId)
@@ -952,11 +1184,19 @@ namespace TES3MPHeadless
 
                         for (const mwmp::ContainerItem& item : obj.containerItems)
                         {
-                            const ESM::RefId itemId = ESM::RefId::stringRefId(item.refId);
-                            if (objectList.action == mwmp::BaseObjectList::REMOVE)
-                                store.remove(itemId, std::max(1, item.count));
-                            else if (item.count > 0)
-                                store.add(itemId, item.count, true);
+                            try
+                            {
+                                const ESM::RefId itemId = ESM::RefId::stringRefId(item.refId);
+                                if (objectList.action == mwmp::BaseObjectList::REMOVE)
+                                    store.remove(itemId, std::max(1, item.count));
+                                else if (item.count > 0)
+                                    store.add(itemId, item.count, true);
+                            }
+                            catch (const std::exception& e)
+                            {
+                                Log(Debug::Warning) << "Authoritative ID_CONTAINER item skipped '" << item.refId
+                                                    << "': " << e.what();
+                            }
                         }
                     }
                     break;
@@ -1021,7 +1261,10 @@ namespace TES3MPHeadless
         {
             if (activeIds.find(*it) == activeIds.end()
                 && (!Players::getPlayers() || !Players::getPlayer(*it)))
+            {
+                mCellInstances.removePlayerFromParty(*it);
                 it = mPlayersWithKnownCell.erase(it);
+            }
             else
                 ++it;
         }
@@ -1095,8 +1338,12 @@ namespace TES3MPHeadless
         const float posThreshSq = mConfig.mAuthority.actorPosDeltaSq;
         const float rotThresh = mConfig.mAuthority.actorRotDeltaRad;
         const float statThresh = mConfig.mAuthority.actorStatDelta;
-        const float broadcastRadiusSq = mConfig.mAuthority.actorBroadcastRadius * mConfig.mAuthority.actorBroadcastRadius;
+        const float broadcastRadius = std::max(mConfig.mAuthority.actorSimulationRadius, mConfig.mAuthority.actorBroadcastRadius);
+        const float broadcastRadiusSq = broadcastRadius * broadcastRadius;
         const std::size_t maxBatch = std::max<std::size_t>(1, mConfig.mAuthority.maxActorsPerBroadcast);
+        const bool sweepContainersThisCycle = ((mContainerSweepCounter++ % 20) == 0);
+        const std::uint64_t initialDeltaCount = mAuthoritativeDeltaCount;
+        std::size_t evaluatedActors = 0;
 
         for (MWWorld::CellStore* cellStore : mWorld.getWorldScene().getActiveCells())
         {
@@ -1139,11 +1386,23 @@ namespace TES3MPHeadless
             mwmp::BaseActorList posBatch;
             mwmp::BaseActorList animBatch;
             mwmp::BaseActorList statsBatch;
+            mwmp::BaseActorList equipBatch;
             mwmp::BaseActorList deathBatch;
-            posBatch.cell = animBatch.cell = statsBatch.cell = deathBatch.cell = esmCell;
+            posBatch.cell = animBatch.cell = statsBatch.cell = equipBatch.cell = deathBatch.cell = esmCell;
+
+            mwmp::BaseObjectList containerBatch;
+            containerBatch.cell = esmCell;
+            containerBatch.action = mwmp::BaseObjectList::SET;
+            containerBatch.containerSubAction = mwmp::BaseObjectList::NONE;
+            containerBatch.packetOrigin = mwmp::SERVER_SCRIPT;
 
             cellStore->forEach([&](const MWWorld::Ptr& ptr) {
-                if (!ptr.getClass().isActor() || !ptr.getRefData().isEnabled() || isPlayerAnchorPtr(ptr))
+                if (!ptr.getRefData().isEnabled() || isPlayerAnchorPtr(ptr))
+                    return true;
+
+                const bool isActor = ptr.getClass().isActor();
+                const bool isContainer = ptr.getType() == ESM::Container::sRecordId;
+                if (!isActor && !isContainer)
                     return true;
 
                 const ESM::Position& esmPos = ptr.getRefData().getPosition();
@@ -1164,6 +1423,29 @@ namespace TES3MPHeadless
                 }
 
                 const MWWorld::LiveCellRefBase* key = ptr.getBase();
+
+                if (isContainer)
+                {
+                    const bool isNewContainer = (mContainerSnapshots.find(key) == mContainerSnapshots.end());
+                    if ((isNewContainer || sweepContainersThisCycle) && containerBatch.baseObjects.size() < maxBatch)
+                    {
+                        MWWorld::ContainerStore& store = const_cast<MWWorld::Ptr&>(ptr).getClass().getContainerStore(ptr);
+                        if (!store.isResolved())
+                            store.resolve();
+                        const std::uint64_t cHash = computeContainerHash(store);
+                        auto [cIt, cInserted] = mContainerSnapshots.try_emplace(key, cHash);
+                        if (cInserted || cIt->second != cHash)
+                        {
+                            cIt->second = cHash;
+                            containerBatch.baseObjects.push_back(buildContainerObject(ptr, store));
+                            ++mAuthoritativeDeltaCount;
+                        }
+                    }
+                    return true;
+                }
+
+                ++evaluatedActors;
+
                 const osg::Vec3f rot = esmPos.asRotationVec3();
                 const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
                 const unsigned int moveFlags = readMovementFlags(stats);
@@ -1178,9 +1460,25 @@ namespace TES3MPHeadless
                 ActorSnapshot& snap = it->second;
                 if (inserted || !snap.mInitialized)
                 {
+                    if (ptr.getClass().hasInventoryStore(ptr))
+                    {
+                        MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
+                        inv.resolve();
+                        if (!dead)
+                            inv.autoEquip();
+                    }
                     snap = ActorSnapshot{
-                        pos, rot, moveFlags, drawState, flying, health, magicka, fatigue, dead, dead, true
+                        pos, rot, moveFlags, drawState, flying, health, magicka, fatigue, dead, dead, 0, false, false, true
                     };
+                    if (ptr.getClass().hasInventoryStore(ptr) && equipBatch.baseActors.size() < maxBatch)
+                    {
+                        mwmp::BaseActor equipActor = buildBaseActor(ptr, mWorld, esmCell, false, false, false);
+                        populateActorEquipment(ptr, equipActor, snap.mEquipmentHash);
+                        snap.mEquipmentBroadcasted = true;
+                        equipBatch.baseActors.push_back(std::move(equipActor));
+                        ++mAuthoritativeDeltaCount;
+                        ++mDeltaStats.mEquip;
+                    }
                     return true;
                 }
 
@@ -1188,14 +1486,36 @@ namespace TES3MPHeadless
                 if (!dead && snap.mDeathBroadcasted)
                     snap.mDeathBroadcasted = false;
 
+                // Resolve and broadcast corpse inventory once dead.
+                if (dead && ptr.getClass().hasInventoryStore(ptr) && containerBatch.baseObjects.size() < maxBatch)
+                {
+                    MWWorld::ContainerStore& store = const_cast<MWWorld::Ptr&>(ptr).getClass().getContainerStore(ptr);
+                    store.resolve();
+                    const std::uint64_t cHash = computeContainerHash(store);
+                    auto [cIt, cInserted] = mContainerSnapshots.try_emplace(key, cHash);
+                    if (cInserted || cIt->second != cHash)
+                    {
+                        cIt->second = cHash;
+                        containerBatch.baseObjects.push_back(buildContainerObject(ptr, store));
+                        ++mAuthoritativeDeltaCount;
+                    }
+                }
+
                 const bool batchCapacityRemaining = posBatch.baseActors.size() < maxBatch
                     && animBatch.baseActors.size() < maxBatch
                     && statsBatch.baseActors.size() < maxBatch;
 
+                const float dx = pos.x() - snap.mPos.x();
+                const float dy = pos.y() - snap.mPos.y();
+                const float horizLenSq = dx * dx + dy * dy;
+                const bool isMovingNow = horizLenSq > 0.25f;
+                const bool stoppedMoving = snap.mWasMoving && !isMovingNow;
+
                 const bool posDirty = batchCapacityRemaining
                     && ((pos - snap.mPos).length2() >= posThreshSq
                         || std::abs(rot.z() - snap.mRot.z()) >= rotThresh
-                        || std::abs(rot.x() - snap.mRot.x()) >= rotThresh);
+                        || std::abs(rot.x() - snap.mRot.x()) >= rotThresh
+                        || stoppedMoving);
                 const bool animDirty = batchCapacityRemaining
                     && (moveFlags != snap.mMovementFlags || drawState != snap.mDrawState || flying != snap.mIsFlying);
                 const bool statsDirty = batchCapacityRemaining
@@ -1205,18 +1525,57 @@ namespace TES3MPHeadless
                         || (dead != snap.mDead));
                 const bool deathDirty = (dead && !snap.mDeathBroadcasted);
 
+                bool equipDirty = false;
+                std::uint64_t currentEquipHash = snap.mEquipmentHash;
+                if (ptr.getClass().hasInventoryStore(ptr) && equipBatch.baseActors.size() < maxBatch)
+                {
+                    currentEquipHash = computeEquipmentHash(ptr);
+                    equipDirty = (!snap.mEquipmentBroadcasted || currentEquipHash != snap.mEquipmentHash);
+                }
+
+                if (!posDirty && !animDirty && !statsDirty && !deathDirty && !equipDirty)
+                    return true;
+
+                if (equipDirty)
+                {
+                    mwmp::BaseActor equipActor = buildBaseActor(ptr, mWorld, esmCell, false, false, false);
+                    populateActorEquipment(ptr, equipActor, snap.mEquipmentHash);
+                    equipBatch.baseActors.push_back(std::move(equipActor));
+                    snap.mEquipmentBroadcasted = true;
+                    ++mAuthoritativeDeltaCount;
+                    ++mDeltaStats.mEquip;
+                }
+
                 if (!posDirty && !animDirty && !statsDirty && !deathDirty)
                     return true;
 
-                const mwmp::BaseActor baseActor
+                mwmp::BaseActor baseActor
                     = buildBaseActor(ptr, mWorld, esmCell, posDirty, statsDirty, deathDirty);
 
                 if (posDirty)
                 {
+                    if (isMovingNow)
+                    {
+                        const float invLen = 1.0f / std::sqrt(horizLenSq);
+                        const float nx = dx * invLen;
+                        const float ny = dy * invLen;
+                        const float sinZ = std::sin(rot.z());
+                        const float cosZ = std::cos(rot.z());
+                        baseActor.direction.pos[0] = nx * cosZ - ny * sinZ;
+                        baseActor.direction.pos[1] = nx * sinZ + ny * cosZ;
+                    }
+                    else
+                    {
+                        baseActor.direction.pos[0] = 0.0f;
+                        baseActor.direction.pos[1] = 0.0f;
+                        baseActor.direction.pos[2] = 0.0f;
+                    }
                     posBatch.baseActors.push_back(baseActor);
                     snap.mPos = pos;
                     snap.mRot = rot;
+                    snap.mWasMoving = isMovingNow;
                     ++mAuthoritativeDeltaCount;
+                    ++mDeltaStats.mPos;
                 }
                 if (animDirty)
                 {
@@ -1225,6 +1584,7 @@ namespace TES3MPHeadless
                     snap.mDrawState = drawState;
                     snap.mIsFlying = flying;
                     ++mAuthoritativeDeltaCount;
+                    ++mDeltaStats.mAnim;
                 }
                 if (statsDirty)
                 {
@@ -1234,6 +1594,7 @@ namespace TES3MPHeadless
                     snap.mFatigue = fatigue;
                     snap.mDead = dead;
                     ++mAuthoritativeDeltaCount;
+                    ++mDeltaStats.mStats;
                 }
                 if (deathDirty)
                 {
@@ -1246,7 +1607,8 @@ namespace TES3MPHeadless
             });
 
             if (posBatch.baseActors.empty() && animBatch.baseActors.empty() && statsBatch.baseActors.empty()
-                && deathBatch.baseActors.empty())
+                && equipBatch.baseActors.empty() && deathBatch.baseActors.empty()
+                && containerBatch.baseObjects.empty())
             {
                 continue;
             }
@@ -1283,6 +1645,19 @@ namespace TES3MPHeadless
             dispatchActorBatch(ID_ACTOR_POSITION, posBatch, true);
             dispatchActorBatch(ID_ACTOR_ANIM_FLAGS, animBatch, false);
             dispatchActorBatch(ID_ACTOR_STATS_DYNAMIC, statsBatch, true);
+            dispatchActorBatch(ID_ACTOR_EQUIPMENT, equipBatch, true);
+            if (!containerBatch.baseObjects.empty())
+            {
+                if (mwmp::ObjectPacket* objPkt = mNetworking->getObjectPacketController()->GetPacket(ID_CONTAINER))
+                {
+                    containerBatch.guid = serverGuid;
+                    for (::Player* pl : recipients)
+                    {
+                        objPkt->setObjectList(&containerBatch);
+                        objPkt->Send(pl->guid);
+                    }
+                }
+            }
             if (!deathBatch.baseActors.empty())
             {
                 deathBatch.count = static_cast<unsigned int>(deathBatch.baseActors.size());
@@ -1294,6 +1669,26 @@ namespace TES3MPHeadless
                         observer->getId(), Utils::getCellDescription(esmCell).c_str());
                 }
             }
+        }
+
+        if (mAuthoritativeDeltaCount == initialDeltaCount)
+        {
+            if (++mStallBroadcastCycles >= 60)
+            {
+                mStallBroadcastCycles = 0;
+                const ConnectedObserver& obs0 = connected.front();
+                const std::string obsCell = obs0.mPlayer ? Utils::getCellDescription(obs0.mPlayer->cell) : "<none>";
+                Log(Debug::Warning) << "Authoritative broadcast stall (3s, players=" << connected.size()
+                                    << ", anchors=" << mPlayerAnchors.size()
+                                    << ", anchor0=" << obsCell << " (" << obs0.mPosition.x() << ", "
+                                    << obs0.mPosition.y() << ", " << obs0.mPosition.z() << ")"
+                                    << ", activeCells=" << mWorld.getWorldScene().getActiveCells().size()
+                                    << ", evaluatedActors=" << evaluatedActors << ")";
+            }
+        }
+        else
+        {
+            mStallBroadcastCycles = 0;
         }
     }
 
@@ -1393,5 +1788,372 @@ namespace TES3MPHeadless
     std::uint64_t HeadlessServer::getAuthoritativeDeltaCount() const
     {
         return mAuthoritativeDeltaCount;
+    }
+
+    HeadlessServer::AuthoritativeDeltaStats HeadlessServer::consumeAuthoritativeDeltaStats(
+        std::uint64_t& outTotalDeltas)
+    {
+        outTotalDeltas = mAuthoritativeDeltaCount;
+        const AuthoritativeDeltaStats snapshot = mDeltaStats;
+        mAuthoritativeDeltaCount = 0;
+        mDeltaStats = {};
+        return snapshot;
+    }
+
+    void HeadlessServer::applyDynamicRecords(const mwmp::BaseWorldstate& worldstate)
+    {
+        try
+        {
+        auto applyAll = [](const auto& vec) {
+            for (const auto& rec : vec)
+                RecordHelper::overrideRecord(rec);
+        };
+        applyAll(worldstate.activatorRecords);
+        applyAll(worldstate.apparatusRecords);
+        applyAll(worldstate.armorRecords);
+        applyAll(worldstate.bodyPartRecords);
+        applyAll(worldstate.bookRecords);
+        applyAll(worldstate.cellRecords);
+        applyAll(worldstate.clothingRecords);
+        applyAll(worldstate.containerRecords);
+        applyAll(worldstate.creatureRecords);
+        applyAll(worldstate.doorRecords);
+        applyAll(worldstate.enchantmentRecords);
+        applyAll(worldstate.gameSettingRecords);
+        applyAll(worldstate.ingredientRecords);
+        applyAll(worldstate.lightRecords);
+        applyAll(worldstate.lockpickRecords);
+        applyAll(worldstate.miscellaneousRecords);
+        applyAll(worldstate.npcRecords);
+        applyAll(worldstate.potionRecords);
+        applyAll(worldstate.probeRecords);
+        applyAll(worldstate.repairRecords);
+        applyAll(worldstate.scriptRecords);
+        applyAll(worldstate.soundRecords);
+        applyAll(worldstate.spellRecords);
+        applyAll(worldstate.staticRecords);
+        applyAll(worldstate.weaponRecords);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "applyDynamicRecords exception: " << e.what();
+        }
+    }
+
+    void HeadlessServer::handleLuaRecordCreated(const std::type_info& type, const void* recordPtr)
+    {
+        if (!recordPtr || !mNetworking)
+            return;
+
+        mwmp::BaseWorldstate ws;
+        if (type == typeid(ESM::Activator))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::ACTIVATOR;
+            mwmp::ActivatorRecord r{};
+            r.data = *static_cast<const ESM::Activator*>(recordPtr);
+            ws.activatorRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Armor))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::ARMOR;
+            mwmp::ArmorRecord r{};
+            r.data = *static_cast<const ESM::Armor*>(recordPtr);
+            ws.armorRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Clothing))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::CLOTHING;
+            mwmp::ClothingRecord r{};
+            r.data = *static_cast<const ESM::Clothing*>(recordPtr);
+            ws.clothingRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Book))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::BOOK;
+            mwmp::BookRecord r{};
+            r.data = *static_cast<const ESM::Book*>(recordPtr);
+            ws.bookRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Enchantment))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::ENCHANTMENT;
+            mwmp::EnchantmentRecord r{};
+            r.data = *static_cast<const ESM::Enchantment*>(recordPtr);
+            ws.enchantmentRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Miscellaneous))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::MISCELLANEOUS;
+            mwmp::MiscellaneousRecord r{};
+            r.data = *static_cast<const ESM::Miscellaneous*>(recordPtr);
+            ws.miscellaneousRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Potion))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::POTION;
+            mwmp::PotionRecord r{};
+            r.data = *static_cast<const ESM::Potion*>(recordPtr);
+            ws.potionRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Probe))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::PROBE;
+            mwmp::ProbeRecord r{};
+            r.data = *static_cast<const ESM::Probe*>(recordPtr);
+            ws.probeRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Spell))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::SPELL;
+            mwmp::SpellRecord r{};
+            r.data = *static_cast<const ESM::Spell*>(recordPtr);
+            ws.spellRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Static))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::STATIC;
+            mwmp::StaticRecord r{};
+            r.data = *static_cast<const ESM::Static*>(recordPtr);
+            ws.staticRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::NPC))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::NPC;
+            mwmp::NpcRecord r{};
+            r.data = *static_cast<const ESM::NPC*>(recordPtr);
+            ws.npcRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Creature))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::CREATURE;
+            mwmp::CreatureRecord r{};
+            r.data = *static_cast<const ESM::Creature*>(recordPtr);
+            ws.creatureRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Container))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::CONTAINER;
+            mwmp::ContainerRecord r{};
+            r.data = *static_cast<const ESM::Container*>(recordPtr);
+            ws.containerRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Door))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::DOOR;
+            mwmp::DoorRecord r{};
+            r.data = *static_cast<const ESM::Door*>(recordPtr);
+            ws.doorRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Weapon))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::WEAPON;
+            mwmp::WeaponRecord r{};
+            r.data = *static_cast<const ESM::Weapon*>(recordPtr);
+            ws.weaponRecords.push_back(std::move(r));
+        }
+        else if (type == typeid(ESM::Light))
+        {
+            ws.recordsType = mwmp::RECORD_TYPE::LIGHT;
+            mwmp::LightRecord r{};
+            r.data = *static_cast<const ESM::Light*>(recordPtr);
+            ws.lightRecords.push_back(std::move(r));
+        }
+        else
+            return;
+
+        if (mwmp::WorldstatePacket* pkt
+            = mNetworking->getWorldstatePacketController()->GetPacket(ID_RECORD_DYNAMIC))
+        {
+            ws.guid = RakNet::UNASSIGNED_CRABNET_GUID;
+            pkt->setWorldstate(&ws);
+            pkt->Send(true);
+        }
+    }
+
+    void HeadlessServer::handleServerObjectEvent(unsigned char packetId, const mwmp::BaseObjectList& objectList)
+    {
+        if (!mConfig.mAuthority.authoritativeMode)
+            return;
+
+        try
+        {
+        MWWorld::CellStore* cellStore = resolveCellStore(objectList.cell);
+        if (!cellStore)
+            return;
+
+        for (const mwmp::BaseObject& obj : objectList.baseObjects)
+        {
+            if (packetId == ID_OBJECT_PLACE || packetId == ID_OBJECT_SPAWN)
+            {
+                if (!cellStore->searchExact(0, obj.mpNum, obj.refId, true).isEmpty())
+                    continue;
+                try
+                {
+                    MWWorld::ManualRef ref(
+                        mWorld.getStore(), ESM::RefId::stringRefId(obj.refId), std::max(1, obj.count));
+                    MWWorld::Ptr placed = mWorld.placeObject(ref.getPtr(), cellStore, obj.position);
+                    if (!placed.isEmpty())
+                    {
+                        placed.getCellRef().setMpNum(obj.mpNum);
+                        if (obj.scale != 1.f && obj.scale > 0.f)
+                            mWorld.scaleObject(placed, obj.scale);
+                        mWorld.enable(placed);
+                        if (placed.getClass().hasInventoryStore(placed))
+                        {
+                            placed.getClass().getInventoryStore(placed).resolve();
+                            placed.getClass().getInventoryStore(placed).autoEquip();
+                        }
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "Server object spawn/place skipped '" << obj.refId << "': " << e.what();
+                }
+                continue;
+            }
+
+            MWWorld::Ptr targetPtr = cellStore->searchExact(obj.refNum, obj.mpNum, obj.refId, true);
+            if (targetPtr.isEmpty())
+                continue;
+
+            switch (packetId)
+            {
+                case ID_OBJECT_DELETE:
+                    mWorld.deleteObject(targetPtr);
+                    break;
+                case ID_OBJECT_MOVE:
+                    mWorld.moveObject(targetPtr, obj.position.asVec3());
+                    break;
+                case ID_OBJECT_ROTATE:
+                    mWorld.rotateObject(
+                        targetPtr, osg::Vec3f(obj.position.rot[0], obj.position.rot[1], obj.position.rot[2]));
+                    break;
+                case ID_OBJECT_LOCK:
+                    targetPtr.getCellRef().setLockLevel(obj.lockLevel);
+                    break;
+                case ID_DOOR_STATE:
+                    if (targetPtr.getType() == ESM::Door::sRecordId)
+                    {
+                        MWWorld::DoorState state = MWWorld::DoorState::Idle;
+                        if (obj.doorState == 1)
+                            state = MWWorld::DoorState::Opening;
+                        else if (obj.doorState == 2)
+                            state = MWWorld::DoorState::Closing;
+                        targetPtr.getClass().setDoorState(targetPtr, state);
+                    }
+                    break;
+                case ID_CONTAINER:
+                    if (targetPtr.getType() == ESM::Container::sRecordId
+                        || targetPtr.getClass().hasInventoryStore(targetPtr))
+                    {
+                        MWWorld::ContainerStore& store = targetPtr.getClass().getContainerStore(targetPtr);
+                        if (objectList.action == mwmp::BaseObjectList::SET)
+                            store.clear();
+                        for (const mwmp::ContainerItem& item : obj.containerItems)
+                        {
+                            try
+                            {
+                                const ESM::RefId itemId = ESM::RefId::stringRefId(item.refId);
+                                if (objectList.action == mwmp::BaseObjectList::REMOVE)
+                                    store.remove(itemId, std::max(1, item.count));
+                                else if (item.count > 0)
+                                    store.add(itemId, item.count, true);
+                            }
+                            catch (const std::exception& e)
+                            {
+                                Log(Debug::Warning) << "Authoritative ID_CONTAINER item skipped '" << item.refId
+                                                    << "': " << e.what();
+                            }
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "handleServerObjectEvent exception: " << e.what();
+        }
+    }
+
+    void HeadlessServer::handleServerActorAI(const mwmp::BaseActorList& actorList)
+    {
+        if (!mConfig.mAuthority.authoritativeMode)
+            return;
+
+        MWWorld::CellStore* cellStore = resolveCellStore(actorList.cell);
+        for (const mwmp::BaseActor& actor : actorList.baseActors)
+        {
+            MWWorld::Ptr actorPtr;
+            if (cellStore)
+                actorPtr = cellStore->searchExact(actor.refNum, actor.mpNum, actor.refId, true);
+            if (actorPtr.isEmpty())
+            {
+                for (MWWorld::CellStore* activeCell : mWorld.getWorldScene().getActiveCells())
+                {
+                    actorPtr = activeCell->searchExact(actor.refNum, actor.mpNum, actor.refId, true);
+                    if (!actorPtr.isEmpty())
+                        break;
+                }
+            }
+            if (actorPtr.isEmpty() || !actorPtr.getClass().isActor())
+                continue;
+
+            MWMechanics::AiSequence& seq = actorPtr.getClass().getCreatureStats(actorPtr).getAiSequence();
+            MWWorld::Ptr aiTarget;
+            if (actor.hasAiTarget
+                && (actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
+                    || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW))
+            {
+                aiTarget = resolveTargetPtr(actor.aiTarget, cellStore);
+                if (aiTarget.isEmpty() && actor.aiAction == mwmp::BaseActorList::ACTIVATE)
+                    aiTarget = mWorld.searchPtrViaUniqueIndex(actor.aiTarget.refNum, actor.aiTarget.mpNum);
+            }
+
+            switch (actor.aiAction)
+            {
+                case mwmp::BaseActorList::CANCEL:
+                    seq.clear();
+                    break;
+                case mwmp::BaseActorList::ACTIVATE:
+                    if (!aiTarget.isEmpty())
+                        seq.stack(MWMechanics::AiActivate(aiTarget.getCellRef().getRefId(), actor.aiShouldRepeat),
+                            actorPtr, true);
+                    break;
+                case mwmp::BaseActorList::COMBAT:
+                    if (!aiTarget.isEmpty())
+                        seq.stack(MWMechanics::AiCombat(aiTarget), actorPtr, true);
+                    break;
+                case mwmp::BaseActorList::ESCORT:
+                    if (!aiTarget.isEmpty())
+                        seq.stack(MWMechanics::AiEscort(aiTarget.getCellRef().getRefId(), {}, actor.aiDuration,
+                                      actor.aiCoordinates.pos[0], actor.aiCoordinates.pos[1],
+                                      actor.aiCoordinates.pos[2], actor.aiShouldRepeat),
+                            actorPtr, true);
+                    break;
+                case mwmp::BaseActorList::FOLLOW:
+                    if (!aiTarget.isEmpty())
+                    {
+                        MWMechanics::AiFollow package(aiTarget);
+                        package.allowAnyDistance(true);
+                        seq.stack(package, actorPtr, true);
+                    }
+                    break;
+                case mwmp::BaseActorList::TRAVEL:
+                    seq.stack(MWMechanics::AiTravel(actor.aiCoordinates.pos[0], actor.aiCoordinates.pos[1],
+                                  actor.aiCoordinates.pos[2], actor.aiShouldRepeat),
+                        actorPtr, true);
+                    break;
+                case mwmp::BaseActorList::WANDER:
+                    seq.stack(MWMechanics::AiWander(static_cast<int>(actor.aiDistance), actor.aiDuration, -1, {},
+                                  actor.aiShouldRepeat),
+                        actorPtr, true);
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 }

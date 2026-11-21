@@ -16,6 +16,7 @@ namespace mwmp
 
         void update(float dt);
         void move(float dt);
+        void onPositionPacket(const ESM::Position& newPosition, const ESM::Position& newDirection);
         void setCell(MWWorld::CellStore *cellStore);
         void setMovementSettings();
         void setPosition();
@@ -42,6 +43,8 @@ namespace mwmp
 
         bool hasReceivedInitialEquipment;
         bool hasChangedCell;
+        bool isAuthoritativeMoving;
+        float authoritativeMoveTimer;
     };
 }
 

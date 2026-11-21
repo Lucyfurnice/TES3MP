@@ -10,6 +10,10 @@
 
 using namespace mwmp;
 
+#ifdef TES3MP_HEADLESS
+static std::function<void(unsigned char, const mwmp::BaseObjectList&)> sServerObjectEventHandler;
+#endif
+
 BaseObjectList *readObjectList;
 BaseObjectList writeObjectList;
 
@@ -725,6 +729,10 @@ void ObjectFunctions::SendObjectActivate(bool sendToOtherPlayers, bool skipAttac
 
 void ObjectFunctions::SendObjectPlace(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_PLACE, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_PLACE);
     packet->setObjectList(&writeObjectList);
 
@@ -736,6 +744,10 @@ void ObjectFunctions::SendObjectPlace(bool sendToOtherPlayers, bool skipAttached
 
 void ObjectFunctions::SendObjectSpawn(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_SPAWN, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_SPAWN);
     packet->setObjectList(&writeObjectList);
 
@@ -747,6 +759,10 @@ void ObjectFunctions::SendObjectSpawn(bool sendToOtherPlayers, bool skipAttached
 
 void ObjectFunctions::SendObjectDelete(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_DELETE, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_DELETE);
     packet->setObjectList(&writeObjectList);
     
@@ -758,6 +774,10 @@ void ObjectFunctions::SendObjectDelete(bool sendToOtherPlayers, bool skipAttache
 
 void ObjectFunctions::SendObjectLock(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_LOCK, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_LOCK);
     packet->setObjectList(&writeObjectList);
 
@@ -846,6 +866,10 @@ void ObjectFunctions::SendObjectState(bool sendToOtherPlayers, bool skipAttached
 
 void ObjectFunctions::SendObjectMove(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_MOVE, writeObjectList);
+#endif
     mwmp::ObjectPacket* packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_MOVE);
     packet->setObjectList(&writeObjectList);
 
@@ -857,6 +881,10 @@ void ObjectFunctions::SendObjectMove(bool sendToOtherPlayers, bool skipAttachedP
 
 void ObjectFunctions::SendObjectRotate(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_OBJECT_ROTATE, writeObjectList);
+#endif
     mwmp::ObjectPacket* packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_OBJECT_ROTATE);
     packet->setObjectList(&writeObjectList);
 
@@ -868,6 +896,10 @@ void ObjectFunctions::SendObjectRotate(bool sendToOtherPlayers, bool skipAttache
 
 void ObjectFunctions::SendDoorState(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_DOOR_STATE, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_DOOR_STATE);
     packet->setObjectList(&writeObjectList);
 
@@ -890,6 +922,10 @@ void ObjectFunctions::SendDoorDestination(bool sendToOtherPlayers, bool skipAtta
 
 void ObjectFunctions::SendContainer(bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerObjectEventHandler)
+        sServerObjectEventHandler(ID_CONTAINER, writeObjectList);
+#endif
     mwmp::ObjectPacket *packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(ID_CONTAINER);
     packet->setObjectList(&writeObjectList);
 
@@ -1010,3 +1046,11 @@ void ObjectFunctions::AddWorldObject() noexcept
 {
     AddObject();
 }
+
+#ifdef TES3MP_HEADLESS
+void ObjectFunctions::SetServerObjectEventHandler(
+    std::function<void(unsigned char, const mwmp::BaseObjectList&)> handler)
+{
+    sServerObjectEventHandler = std::move(handler);
+}
+#endif

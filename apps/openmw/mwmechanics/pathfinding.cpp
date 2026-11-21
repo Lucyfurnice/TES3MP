@@ -379,6 +379,42 @@ namespace MWMechanics
         mConstructed = !mPath.empty();
     }
 
+#ifdef TES3MP_HEADLESS
+}
+#include <components/debug/debuglog.hpp>
+#include "../mwworld/cellstore.hpp"
+namespace MWMechanics
+{
+    namespace
+    {
+        const char* detourStatusToString(DetourNavigator::Status status)
+        {
+            switch (status)
+            {
+                case DetourNavigator::Status::Success:
+                    return "Success";
+                case DetourNavigator::Status::PartialPath:
+                    return "PartialPath";
+                case DetourNavigator::Status::NavMeshNotFound:
+                    return "NavMeshNotFound";
+                case DetourNavigator::Status::StartPolygonNotFound:
+                    return "StartPolygonNotFound";
+                case DetourNavigator::Status::EndPolygonNotFound:
+                    return "EndPolygonNotFound";
+                case DetourNavigator::Status::MoveAlongSurfaceFailed:
+                    return "MoveAlongSurfaceFailed";
+                case DetourNavigator::Status::FindPathOverPolygonsFailed:
+                    return "FindPathOverPolygonsFailed";
+                case DetourNavigator::Status::InitNavMeshQueryFailed:
+                    return "InitNavMeshQueryFailed";
+                case DetourNavigator::Status::FindStraightPathFailed:
+                    return "FindStraightPathFailed";
+            }
+            return "Unknown";
+        }
+    }
+#endif
+
     void PathFinder::buildPath(const MWWorld::ConstPtr& actor, const osg::Vec3f& startPoint, const osg::Vec3f& endPoint,
         const PathgridGraph& pathgridGraph, const DetourNavigator::AgentBounds& agentBounds,
         const DetourNavigator::Flags flags, const DetourNavigator::AreaCosts& areaCosts, float endTolerance,
@@ -388,6 +424,9 @@ namespace MWMechanics
         mCell = actor.getCell();
 
         DetourNavigator::Status status = DetourNavigator::Status::NavMeshNotFound;
+#ifdef TES3MP_HEADLESS
+        const char* pathMode = "none";
+#endif
 
         if (!actor.getClass().isPureWaterCreature(actor) && !actor.getClass().isPureFlyingCreature(actor))
         {
@@ -395,6 +434,10 @@ namespace MWMechanics
                 pathType, checkpoints, std::back_inserter(mPath));
             if (status != DetourNavigator::Status::Success)
                 mPath.clear();
+#ifdef TES3MP_HEADLESS
+            else if (!mPath.empty())
+                pathMode = "navmesh";
+#endif
         }
 
         if (status != DetourNavigator::Status::NavMeshNotFound && mPath.empty()
@@ -405,15 +448,52 @@ namespace MWMechanics
                 std::back_inserter(mPath));
             if (status != DetourNavigator::Status::Success)
                 mPath.clear();
+#ifdef TES3MP_HEADLESS
+            else if (!mPath.empty())
+                pathMode = "navmesh+pathgrid";
+#endif
         }
 
         if (mPath.empty())
+        {
             buildPathByPathgridImpl(startPoint, endPoint, pathgridGraph, std::back_inserter(mPath));
+#ifdef TES3MP_HEADLESS
+            if (!mPath.empty())
+                pathMode = "pathgrid-fallback";
+#endif
+        }
 
         if (status == DetourNavigator::Status::NavMeshNotFound && mPath.empty())
+        {
             mPath.push_back(endPoint);
+#ifdef TES3MP_HEADLESS
+            pathMode = "straight-line-fallback";
+#endif
+        }
 
         mConstructed = !mPath.empty();
+
+#ifdef TES3MP_HEADLESS
+        static std::size_t sBuildPathLogCount = 0;
+        static std::size_t sBalmoraPathLogCount = 0;
+        const bool isBalmora = mCell && mCell->isExterior()
+            && mCell->getCell()->getGridX() == -3 && mCell->getCell()->getGridY() == -2;
+        ++sBuildPathLogCount;
+        if (isBalmora)
+            ++sBalmoraPathLogCount;
+        if ((isBalmora && (sBalmoraPathLogCount <= 30 || sBalmoraPathLogCount % 50 == 0))
+            || sBuildPathLogCount <= 25 || sBuildPathLogCount % 100 == 0
+            || status != DetourNavigator::Status::Success)
+        {
+            Log(Debug::Info) << "PathFinder::buildPath actor=" << actor.getCellRef().getRefId().getRefIdString()
+                             << " cell='" << (mCell ? mCell->getCell()->getDescription() : std::string("null")) << "'"
+                             << " status=" << detourStatusToString(status)
+                             << " mode=" << pathMode
+                             << " points=" << mPath.size()
+                             << " start=(" << startPoint.x() << ", " << startPoint.y() << ", " << startPoint.z() << ")"
+                             << " end=(" << endPoint.x() << ", " << endPoint.y() << ", " << endPoint.z() << ")";
+        }
+#endif
     }
 
     DetourNavigator::Status PathFinder::buildPathByNavigatorImpl(const MWWorld::ConstPtr& actor,
@@ -423,7 +503,11 @@ namespace MWMechanics
         std::back_insert_iterator<std::deque<osg::Vec3f>> out)
     {
         const MWBase::World& world = *MWBase::Environment::get().getWorld();
-        const DetourNavigator::Navigator& navigator = *world.getNavigator();
+        DetourNavigator::Navigator& navigator = *world.getNavigator();
+#ifdef TES3MP_HEADLESS
+        if (!navigator.getNavMesh(agentBounds))
+            navigator.addAgent(agentBounds);
+#endif
         const DetourNavigator::Status status = DetourNavigator::findPath(
             navigator, agentBounds, startPoint, endPoint, flags, areaCosts, endTolerance, checkpoints, out);
 

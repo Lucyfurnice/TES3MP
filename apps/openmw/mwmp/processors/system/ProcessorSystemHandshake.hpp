@@ -19,8 +19,15 @@ namespace mwmp
 
         virtual void Do(SystemPacket &packet, BaseSystem *system)
         {
-            packet.setSystem(Main::get().getLocalSystem());
-            packet.Send(serverAddr);
+            if (request)
+            {
+                packet.setSystem(Main::get().getLocalSystem());
+                packet.Send(serverAddr);
+            }
+            else if (system != nullptr)
+            {
+                Main::get().setAuthoritativeServer(system->isAuthoritativeServer);
+            }
         }
     };
 }

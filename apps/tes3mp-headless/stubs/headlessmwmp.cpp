@@ -307,14 +307,6 @@ namespace mwmp
     void PlayerList::clearHitAttemptActorId(ESM::RefNum /*refNum*/) {}
 }
 
-namespace RecordHelper
-{
-    const std::string getPlaceholderInteriorCellName()
-    {
-        return "0, 0";
-    }
-}
-
 namespace MechanicsHelper
 {
     ESM::Position getPositionFromVector(osg::Vec3f vector)

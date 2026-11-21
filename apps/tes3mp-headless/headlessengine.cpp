@@ -159,7 +159,7 @@ namespace TES3MPHeadless
         mEnvironment.setSoundManager(*mSoundManager);
 
         mWorld = std::make_unique<MWWorld::World>(
-            mResourceSystem.get(), 0, mConfig.mStartCell, mCfgMgr.getUserDataPath());
+            mResourceSystem.get(), 0, std::string(), mCfgMgr.getUserDataPath());
         mWorld->setNavMeshCacheDir(
             HeadlessServer::resolveServerHome(mCfgMgr, mConfig.mServerCfgPath) / "data" / "navmesh");
         mEnvironment.setWorld(*mWorld);
@@ -226,8 +226,23 @@ namespace TES3MPHeadless
         if (!mConfig.mStartCell.empty())
         {
             Log(Debug::Info) << "Teleporting headless host to start cell: " << mConfig.mStartCell;
-            if (const ESM::Cell* cell
-                = mWorld->getStore().get<ESM::Cell>().search(std::string_view(mConfig.mStartCell)))
+            const ESM::Cell* cell = nullptr;
+            int gridX = 0;
+            int gridY = 0;
+            if (std::sscanf(mConfig.mStartCell.c_str(), "%d , %d", &gridX, &gridY) == 2)
+            {
+                cell = mWorld->getStore().get<ESM::Cell>().search(gridX, gridY);
+            }
+            else if (mConfig.mStartCell == "Balmora" || mConfig.mStartCell == "balmora")
+            {
+                cell = mWorld->getStore().get<ESM::Cell>().search(-3, -2);
+            }
+            if (!cell)
+            {
+                cell = mWorld->getStore().get<ESM::Cell>().search(std::string_view(mConfig.mStartCell));
+            }
+
+            if (cell)
             {
                 ESM::Position pos{};
                 if (cell->isExterior())
@@ -285,6 +300,7 @@ namespace TES3MPHeadless
     bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt, TickTimingsMs& timings)
     {
         const osg::Timer_t tickStart = mTimer->tick();
+        mEnvironment.setFrameDuration(dt);
 
         SDL_Event event;
         while (SDL_PollEvent(&event))
@@ -331,6 +347,7 @@ namespace TES3MPHeadless
                     std::vector<MWBase::MechanicsManager::SimulationObserver> observers;
                     mServer->collectSimulationObservers(observers);
                     mWorld->setNavigatorObservers(observers);
+                    mWorld->prepareNavigation();
                     mMechanicsManager->setSimulationObservers(
                         std::move(observers), mServer->getActorSimulationRadius());
                 }
@@ -445,12 +462,19 @@ namespace TES3MPHeadless
             {
                 const MWWorld::CellStore* cell = mWorld->getWorldScene().getCurrentCell();
                 std::ostringstream statusLine;
+                std::uint64_t intervalTotalDeltas = 0;
+                const auto deltaStats = mServer ? mServer->consumeAuthoritativeDeltaStats(intervalTotalDeltas)
+                                                : HeadlessServer::AuthoritativeDeltaStats{};
                 statusLine << "Headless tick " << tickNumber
                            << " | simTime=" << mWorld->getTimeManager()->getSimulationTime()
                            << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>")
                            << " | activeCells=" << mWorld->getWorldScene().getActiveCells().size()
                            << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0)
-                           << " | authDeltas=" << (mServer ? mServer->getAuthoritativeDeltaCount() : 0);
+                           << " | authDeltas=" << intervalTotalDeltas
+                           << " (pos=" << deltaStats.mPos
+                           << ", anim=" << deltaStats.mAnim
+                           << ", stats=" << deltaStats.mStats
+                           << ", equip=" << deltaStats.mEquip << ")";
 
                 if (mConfig.mProfileTicks && accumSampleCount > 0)
                 {

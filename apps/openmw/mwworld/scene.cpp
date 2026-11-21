@@ -398,13 +398,22 @@ namespace MWWorld
         */
 
         ListAndResetObjectsVisitor visitor;
+#ifdef TES3MP_HEADLESS
+        const bool inNavWorldspace = !mWorld.hasActiveNavigatorWorldspace()
+            || mWorld.getActiveNavigatorWorldspace() == cell->getCell()->getWorldSpace();
+#endif
 
         cell->forEach(visitor, true); // Include objects being teleported by Lua
         for (const auto& ptr : visitor.mObjects)
         {
             if (const auto object = mPhysics->getObject(ptr))
             {
+#ifdef TES3MP_HEADLESS
+                if (inNavWorldspace
+                    && object->getShapeInstance()->mVisualCollisionType == Resource::VisualCollisionType::None)
+#else
                 if (object->getShapeInstance()->mVisualCollisionType == Resource::VisualCollisionType::None)
+#endif
                     mNavigator.removeObject(DetourNavigator::ObjectId(object), navigatorUpdateGuard);
                 mPhysics->remove(ptr);
             }
@@ -424,11 +433,20 @@ namespace MWWorld
 
         if (cell->getCell()->isExterior())
         {
+#ifdef TES3MP_HEADLESS
+            if (inNavWorldspace)
+                mNavigator.removeHeightfield(osg::Vec2i(cellX, cellY), navigatorUpdateGuard);
+#else
             mNavigator.removeHeightfield(osg::Vec2i(cellX, cellY), navigatorUpdateGuard);
+#endif
             mPhysics->removeHeightField(cellX, cellY);
         }
 
+#ifdef TES3MP_HEADLESS
+        if (inNavWorldspace && (cell->getCell()->hasWater() || cell->isExterior()))
+#else
         if (cell->getCell()->hasWater())
+#endif
             mNavigator.removeWater(osg::Vec2i(cellX, cellY), navigatorUpdateGuard);
 
         ESM::visit(ESM::VisitOverload{
@@ -1160,9 +1178,26 @@ namespace MWWorld
         cell.forEach(insertVisitor);
         insertVisitor.insert(
             [&](const MWWorld::Ptr& ptr) { addObject(ptr, mWorld, mPagedRefs, *mPhysics, mRendering); });
+#ifdef TES3MP_HEADLESS
+        std::size_t physicsObjects = 0;
+        std::size_t navObjects = 0;
+        insertVisitor.insert([&](const MWWorld::Ptr& ptr) {
+            if (const auto object = mPhysics->getObject(ptr))
+            {
+                ++physicsObjects;
+                if ((ptr.getClass().isDoor() && !ptr.getCellRef().getTeleport())
+                    || object->getShapeInstance()->mVisualCollisionType == Resource::VisualCollisionType::None)
+                    ++navObjects;
+            }
+            addObject(ptr, mWorld, *mPhysics, mLowestPoint, isInterior, mNavigator, navigatorUpdateGuard);
+        });
+        Log(Debug::Info) << "Registered cell collision for " << cell.getCell()->getDescription()
+                         << " (physicsObjects=" << physicsObjects << ", navObjects=" << navObjects << ")";
+#else
         insertVisitor.insert([&](const MWWorld::Ptr& ptr) {
             addObject(ptr, mWorld, *mPhysics, mLowestPoint, isInterior, mNavigator, navigatorUpdateGuard);
         });
+#endif
     }
 
     void Scene::addObjectToScene(const Ptr& ptr)
@@ -1696,7 +1731,10 @@ namespace MWWorld
         }
 
         if (!cellsToLoad.empty())
+        {
             addPostponedPhysicsObjects();
+            mCellLoaded = true;
+        }
 
         for (CellStore* cell : cellsToUnload)
         {
@@ -1704,6 +1742,101 @@ namespace MWWorld
             unloadCell(cell, navigatorUpdateGuard.get());
             if (mCurrentCell == cell)
                 mCurrentCell = mActiveCells.empty() ? nullptr : *mActiveCells.begin();
+        }
+    }
+
+    void Scene::repopulateNavigatorWorldspace(
+        ESM::RefId worldspace, bool worldspaceChanged, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
+    {
+        using DetourNavigator::HeightfieldShape;
+
+        for (CellStore* cell : mActiveCells)
+        {
+            if (!cell || cell->getCell()->getWorldSpace() != worldspace)
+                continue;
+
+            const MWWorld::Cell& cellVariant = *cell->getCell();
+            const int cellX = cellVariant.getGridX();
+            const int cellY = cellVariant.getGridY();
+            const bool isInterior = !cell->isExterior();
+
+            if (cellVariant.isExterior())
+            {
+                const ESM::ExteriorCellLocation cellIndex(cellX, cellY, worldspace);
+                osg::ref_ptr<const ESMTerrain::LandObject> land = mRendering.getLandManager()->getLand(cellIndex);
+                const ESM::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : nullptr;
+                const int worldsize = ESM::getCellSize(worldspace);
+
+                if (mPhysics->getHeightField(cellX, cellY))
+                {
+                    const osg::Vec2i cellPosition(cellX, cellY);
+                    const HeightfieldShape shape = [&]() -> HeightfieldShape {
+                        if (data == nullptr)
+                        {
+                            return DetourNavigator::HeightfieldPlane{ static_cast<float>(ESM::Land::DEFAULT_HEIGHT) };
+                        }
+                        else
+                        {
+                            DetourNavigator::HeightfieldSurface heights;
+                            heights.mHeights = data->getHeights().data();
+                            heights.mSize = static_cast<std::size_t>(data->getLandSize());
+                            heights.mMinHeight = data->getMinHeight();
+                            heights.mMaxHeight = data->getMaxHeight();
+                            return heights;
+                        }
+                    }();
+                    mNavigator.addHeightfield(cellPosition, worldsize, shape, navigatorUpdateGuard);
+                }
+            }
+
+            if (worldspaceChanged)
+            {
+                ESM::visit(ESM::VisitOverload{
+                               [&](const ESM::Cell& c) {
+                                   if (const auto pathgrid = mWorld.getStore().get<ESM::Pathgrid>().search(c))
+                                   {
+                                       mNavigator.removePathgrid(*pathgrid);
+                                       mNavigator.addPathgrid(c, *pathgrid);
+                                   }
+                               },
+                               [&](const ESM4::Cell& /*c*/) {},
+                           },
+                    cellVariant);
+            }
+
+            InsertVisitor insertVisitor(*cell, nullptr);
+            cell->forEach(insertVisitor);
+            insertVisitor.insert([&](const MWWorld::Ptr& ptr) {
+                if (const auto object = mPhysics->getObject(ptr))
+                {
+                    if (worldspaceChanged)
+                        mNavigator.removeObject(DetourNavigator::ObjectId(object), navigatorUpdateGuard);
+                    addObject(ptr, mWorld, *mPhysics, mLowestPoint, isInterior, mNavigator, navigatorUpdateGuard);
+                }
+                else if (mPhysics->getActor(ptr))
+                {
+                    const DetourNavigator::AgentBounds agentBounds = mWorld.getPathfindingAgentBounds(ptr);
+                    if (!mNavigator.getNavMesh(agentBounds))
+                        mNavigator.addAgent(agentBounds);
+                }
+            });
+
+            const bool waterEnabled = cellVariant.hasWater() || cell->isExterior();
+            if (waterEnabled)
+            {
+                const float waterLevel = cell->getWaterLevel();
+                if (cellVariant.isExterior())
+                {
+                    if (mPhysics->getHeightField(cellX, cellY))
+                        mNavigator.addWater(
+                            osg::Vec2i(cellX, cellY), ESM::Land::REAL_SIZE, waterLevel, navigatorUpdateGuard);
+                }
+                else
+                {
+                    mNavigator.addWater(
+                        osg::Vec2i(cellX, cellY), std::numeric_limits<int>::max(), waterLevel, navigatorUpdateGuard);
+                }
+            }
         }
     }
 #endif

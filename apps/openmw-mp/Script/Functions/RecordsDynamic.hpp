@@ -1,6 +1,13 @@
 #ifndef OPENMW_RECORDSDYNAMICAPI_HPP
 #define OPENMW_RECORDSDYNAMICAPI_HPP
 
+#ifdef TES3MP_HEADLESS
+#include <functional>
+namespace mwmp
+{
+    class BaseWorldstate;
+}
+#endif
 #include "../Types.hpp"
 
 #define RECORDSDYNAMICAPI \
@@ -1143,6 +1150,10 @@ public:
     * \return void
     */
     static void SendRecordDynamic(unsigned short pid, bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept;
+
+#ifdef TES3MP_HEADLESS
+    static void SetRecordDynamicHandler(std::function<void(const mwmp::BaseWorldstate&)> handler);
+#endif
 
 };
 

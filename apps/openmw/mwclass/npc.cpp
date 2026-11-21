@@ -3,6 +3,7 @@
 #ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
+#include "../mwmp/Main.hpp"
 #endif
 
 #include <format>
@@ -771,6 +772,11 @@ namespace MWClass
         bool hasDamage = false;
         bool hasHealthDamage = false;
         float healthDamage = 0.f;
+#ifndef TES3MP_HEADLESS
+        const bool suppressLocalDamage
+            = mwmp::Main::isInitialized() && mwmp::Main::get().isAuthoritativeServer();
+        if (!suppressLocalDamage)
+#endif
         for (auto& [stat, damage] : damages)
         {
             if (damage < 0.001f)

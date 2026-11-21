@@ -48,6 +48,8 @@ DedicatedActor::DedicatedActor()
     hasStatsDynamicData = false;
     hasReceivedInitialEquipment = false;
     hasChangedCell = true;
+    isAuthoritativeMoving = false;
+    authoritativeMoveTimer = 0.0f;
 
     attack.pressed = false;
     cast.pressed = false;
@@ -60,6 +62,13 @@ DedicatedActor::~DedicatedActor()
 
 void DedicatedActor::update(float dt)
 {
+    if (Main::get().isAuthoritativeServer() && !ptr.isEmpty())
+    {
+        MWMechanics::AiSequence& seq = ptr.getClass().getCreatureStats(ptr).getAiSequence();
+        if (!seq.isEmpty())
+            seq.clear();
+    }
+
     // Only move and set anim flags if the framerate isn't too low
     if (dt < 0.1)
     {
@@ -82,30 +91,101 @@ void DedicatedActor::setCell(MWWorld::CellStore *cellStore)
 
 void DedicatedActor::move(float dt)
 {
+    if (!hasPositionData)
+        return;
+
     ESM::Position refPos = ptr.getRefData().getPosition();
     MWBase::World *world = MWBase::Environment::get().getWorld();
-    const int maxInterpolationDistance = 40;
+    const float maxInterpolationDistance = 256.0f;
 
     // Apply interpolation only if the position hasn't changed too much from last time
-    bool shouldInterpolate = abs(position.pos[0] - refPos.pos[0]) < maxInterpolationDistance && abs(position.pos[1] - refPos.pos[1]) < maxInterpolationDistance && abs(position.pos[2] - refPos.pos[2]) < maxInterpolationDistance;
+    bool shouldInterpolate = std::abs(position.pos[0] - refPos.pos[0]) < maxInterpolationDistance
+        && std::abs(position.pos[1] - refPos.pos[1]) < maxInterpolationDistance
+        && std::abs(position.pos[2] - refPos.pos[2]) < maxInterpolationDistance;
 
     // Don't apply linear interpolation if the DedicatedActor has just gone through a cell change, because
     // the interpolated position will be invalid, causing a slight hopping glitch
     if (shouldInterpolate && !hasChangedCell)
     {
-        static const int timeMultiplier = 15;
-        osg::Vec3f lerp = MechanicsHelper::getLinearInterpolation(refPos.asVec3(), position.asVec3(), dt * timeMultiplier);
+        static const float timeMultiplier = 15.0f;
+        const float alpha = std::clamp(dt * timeMultiplier, 0.0f, 1.0f);
+        osg::Vec3f lerp = MechanicsHelper::getLinearInterpolation(refPos.asVec3(), position.asVec3(), alpha);
+        MWWorld::Ptr moved = world->moveObject(ptr, lerp);
+        if (!moved.isEmpty())
+            ptr = moved;
 
-        world->moveObject(ptr, lerp);
+        constexpr float twoPi = 6.28318530718f;
+        constexpr float pi = 3.14159265359f;
+        float yawDelta = std::fmod(position.rot[2] - refPos.rot[2], twoPi);
+        if (yawDelta > pi)
+            yawDelta -= twoPi;
+        else if (yawDelta < -pi)
+            yawDelta += twoPi;
+        const float lerpedYaw = refPos.rot[2] + yawDelta * alpha;
+        world->rotateObject(ptr, osg::Vec3f(position.rot[0], position.rot[1], lerpedYaw));
     }
     else
     {
         setPosition();
         hasChangedCell = false;
+        world->rotateObject(ptr, osg::Vec3f(position.rot[0], position.rot[1], position.rot[2]));
+    }
+
+    if (Main::get().isAuthoritativeServer())
+    {
+        if (isAuthoritativeMoving)
+        {
+            authoritativeMoveTimer += dt;
+            if (authoritativeMoveTimer >= 0.2f)
+            {
+                isAuthoritativeMoving = false;
+                authoritativeMoveTimer = 0.0f;
+                direction.pos[0] = 0.0f;
+                direction.pos[1] = 0.0f;
+                direction.pos[2] = 0.0f;
+            }
+        }
+        else
+        {
+            direction.pos[0] = 0.0f;
+            direction.pos[1] = 0.0f;
+            direction.pos[2] = 0.0f;
+        }
+    }
+    else if ((position.asVec3() - ptr.getRefData().getPosition().asVec3()).length2() < 1.0f)
+    {
+        direction.pos[0] = 0.0f;
+        direction.pos[1] = 0.0f;
+        direction.pos[2] = 0.0f;
     }
 
     setMovementSettings();
-    world->rotateObject(ptr, osg::Vec3f(position.rot[0], position.rot[1], position.rot[2]));
+}
+
+void DedicatedActor::onPositionPacket(const ESM::Position& newPosition, const ESM::Position& newDirection)
+{
+    const float dirHorizSq = newDirection.pos[0] * newDirection.pos[0] + newDirection.pos[1] * newDirection.pos[1];
+    const float targetDeltaSq = hasPositionData ? (newPosition.asVec3() - position.asVec3()).length2() : 0.0f;
+
+    position = newPosition;
+    direction = newDirection;
+
+    if (dirHorizSq > 0.001f || (hasPositionData && targetDeltaSq > 0.25f))
+    {
+        if (dirHorizSq <= 0.001f)
+        {
+            // Synthesize forward movement if position advanced without an explicit direction vector.
+            direction.pos[0] = 0.0f;
+            direction.pos[1] = 1.0f;
+        }
+        isAuthoritativeMoving = true;
+        authoritativeMoveTimer = 0.0f;
+    }
+    else
+    {
+        isAuthoritativeMoving = false;
+        authoritativeMoveTimer = 0.0f;
+    }
 }
 
 void DedicatedActor::setMovementSettings()
@@ -127,7 +207,9 @@ void DedicatedActor::setMovementSettings()
 void DedicatedActor::setPosition()
 {
     MWBase::World *world = MWBase::Environment::get().getWorld();
-    world->moveObject(ptr, position.asVec3());
+    MWWorld::Ptr moved = world->moveObject(ptr, position.asVec3());
+    if (!moved.isEmpty())
+        ptr = moved;
 }
 
 void DedicatedActor::setAnimFlags()

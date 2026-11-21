@@ -139,6 +139,9 @@ void ActorList::addCellChangeActor(BaseActor baseActor)
 
 void ActorList::sendPositionActors()
 {
+    if (Main::get().isAuthoritativeServer())
+        return;
+
     if (positionActors.size() > 0)
     {
         baseActors = positionActors;
@@ -149,6 +152,9 @@ void ActorList::sendPositionActors()
 
 void ActorList::sendAnimFlagsActors()
 {
+    if (Main::get().isAuthoritativeServer())
+        return;
+
     if (animFlagsActors.size() > 0)
     {
         baseActors = animFlagsActors;
@@ -179,6 +185,9 @@ void ActorList::sendSpeechActors()
 
 void ActorList::sendStatsDynamicActors()
 {
+    if (Main::get().isAuthoritativeServer())
+        return;
+
     if (statsDynamicActors.size() > 0)
     {
         baseActors = statsDynamicActors;
@@ -249,6 +258,9 @@ void ActorList::sendCellChangeActors()
 
 void ActorList::sendActorsInCell(MWWorld::CellStore* cellStore)
 {
+    if (Main::get().isAuthoritativeServer())
+        return;
+
     reset();
     cell = cellStore->getCell()->getEsm3();
     action = BaseActorList::SET;

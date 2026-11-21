@@ -344,12 +344,15 @@ set(HEADLESS_STUB_SOURCES
     stubs/headlessmwrender.cpp
     stubs/headlessanimation.cpp
     stubs/headlessluabindings.cpp
+    ../openmw/mwmp/RecordHelper.cpp
     stubs/headlessmwmp.cpp
 )
 
 set(HEADLESS_ENGINE_SOURCES
     headlessengine.hpp
     headlessengine.cpp
+    server/cellinstancemanager.hpp
+    server/cellinstancemanager.cpp
     server/headlessserver.hpp
     server/headlessserver.cpp
     main.cpp

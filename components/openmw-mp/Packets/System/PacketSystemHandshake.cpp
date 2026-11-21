@@ -19,4 +19,9 @@ void PacketSystemHandshake::Packet(RakNet::BitStream *newBitstream, bool send)
         packetValid = false;
         return;
     }
+
+    if (send || newBitstream->GetNumberOfUnreadBits() >= 8)
+        RW(system->isAuthoritativeServer, send);
+    else
+        system->isAuthoritativeServer = false;
 }

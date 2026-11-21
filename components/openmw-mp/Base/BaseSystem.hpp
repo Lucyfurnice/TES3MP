@@ -27,6 +27,7 @@ namespace mwmp
         RakNet::RakNetGUID guid;
         std::string playerName;
         std::string serverPassword;
+        bool isAuthoritativeServer = false;
 
     };
 }

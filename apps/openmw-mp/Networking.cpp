@@ -131,6 +131,13 @@ void Networking::processSystemPacket(RakNet::Packet *packet)
             }
         }
         player->setHandshake();
+        if (authoritativeServer)
+        {
+            mwmp::BaseSystem authNotice(peer->GetMyGUID());
+            authNotice.isAuthoritativeServer = true;
+            myPacket->setSystem(&authNotice);
+            myPacket->Send(player->guid);
+        }
         return;
     }
 }

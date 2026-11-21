@@ -219,6 +219,7 @@ Networking::Networking(): peer(RakNet::RakPeerInterface::GetInstance()), systemP
 
 Networking::~Networking()
 {
+    Main::get().setAuthoritativeServer(false);
     peer->Shutdown(100);
     peer->CloseConnection(peer->GetSystemAddressFromIndex(0), true, 0);
     RakNet::RakPeerInterface::DestroyInstance(peer);
@@ -252,9 +253,11 @@ void Networking::update()
                 errmsg = "The server is full.";
                 break;
             case ID_DISCONNECTION_NOTIFICATION:
+                Main::get().setAuthoritativeServer(false);
                 errmsg = "We have been disconnected.";
                 break;
             case ID_CONNECTION_LOST:
+                Main::get().setAuthoritativeServer(false);
                 errmsg = "Connection lost.";
                 break;
             default:

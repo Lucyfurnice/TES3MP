@@ -41,7 +41,9 @@ void CellController::updateLocal(bool forceUpdate)
     {
         mwmp::Cell *mpCell = it->second;
 
-        if (mpCell->getCellStore() == nullptr || mpCell->getCellStore()->getCell() == nullptr || !world->isCellActive(mpCell->getCellStore()->getCell()->getEsm3()))
+        if (mpCell->getCellStore() == nullptr || mpCell->getCellStore()->getCell() == nullptr
+            || mpCell->getCellStore()->getState() != MWWorld::CellStore::State_Loaded
+            || !world->isCellActive(mpCell->getCellStore()->getCell()->getEsm3()))
         {
             mpCell->uninitializeLocalActors();
             mpCell->uninitializeDedicatedActors();
@@ -62,6 +64,13 @@ void CellController::updateLocal(bool forceUpdate)
     //       deleted from their previous one can make their records stay deleted
     if (cellsInitialized.size() > 0)
     {
+        if (Main::get().isAuthoritativeServer())
+        {
+            for (auto& cell : cellsInitialized)
+                cell.second->shouldInitializeActors = false;
+            return;
+        }
+
         for (auto& cell : cellsInitialized)
         {
             mwmp::Cell* mpCell = cell.second;
@@ -81,8 +90,27 @@ void CellController::updateLocal(bool forceUpdate)
 
 void CellController::updateDedicated(float dt)
 {
-    for (const auto &cell : cellsInitialized)
-        cell.second->updateDedicated(dt);
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+
+    for (auto it = cellsInitialized.begin(); it != cellsInitialized.end();)
+    {
+        mwmp::Cell* mpCell = it->second;
+
+        if (mpCell->getCellStore() == nullptr || mpCell->getCellStore()->getCell() == nullptr
+            || mpCell->getCellStore()->getState() != MWWorld::CellStore::State_Loaded
+            || !world->isCellActive(mpCell->getCellStore()->getCell()->getEsm3()))
+        {
+            mpCell->uninitializeLocalActors();
+            mpCell->uninitializeDedicatedActors();
+            delete mpCell;
+            cellsInitialized.erase(it++);
+        }
+        else
+        {
+            mpCell->updateDedicated(dt);
+            ++it;
+        }
+    }
 }
 
 void CellController::initializeCell(const ESM::Cell& cell)
@@ -138,6 +166,9 @@ void CellController::uninitializeCells()
 
 void CellController::readPositions(ActorList& actorList)
 {
+    if (Main::get().isAuthoritativeServer() && !isActiveWorldCell(actorList.cell))
+        return;
+
     std::string mapIndex = Utils::getCellDescription(actorList.cell);
 
     initializeCell(actorList.cell);
@@ -401,6 +432,9 @@ std::string CellController::generateMapIndex(BaseActor baseActor)
 
 bool CellController::hasLocalAuthority(const ESM::Cell& cell)
 {
+    if (Main::get().isAuthoritativeServer())
+        return false;
+
     if (isInitializedCell(cell) && isActiveWorldCell(cell))
         return getCell(cell)->hasLocalAuthority();
 

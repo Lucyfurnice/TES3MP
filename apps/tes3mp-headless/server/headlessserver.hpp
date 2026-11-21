@@ -1,12 +1,15 @@
 #ifndef TES3MP_HEADLESS_SERVER_HPP
 #define TES3MP_HEADLESS_SERVER_HPP
 
+#include "cellinstancemanager.hpp"
+
 #include <apps/openmw/mwbase/mechanicsmanager.hpp>
 #include <apps/openmw/mwworld/ptr.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
+#include <components/openmw-mp/Base/BaseWorldstate.hpp>
 #include <components/openmw-mp/Base/ServerAuthority.hpp>
 
 #include <chrono>
@@ -14,6 +17,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -98,6 +102,17 @@ namespace TES3MPHeadless
         bool isAuthoritative() const;
         std::uint64_t getAuthoritativeDeltaCount() const;
 
+        struct AuthoritativeDeltaStats
+        {
+            std::uint64_t mPos = 0;
+            std::uint64_t mAnim = 0;
+            std::uint64_t mStats = 0;
+            std::uint64_t mEquip = 0;
+        };
+        AuthoritativeDeltaStats getAuthoritativeDeltaStats() const { return mDeltaStats; }
+        /// Returns cumulative delta counts since the previous status sample and resets the interval counters.
+        AuthoritativeDeltaStats consumeAuthoritativeDeltaStats(std::uint64_t& outTotalDeltas);
+
     private:
         struct QueuedActorSync
         {
@@ -117,6 +132,9 @@ namespace TES3MPHeadless
             float mFatigue = 0.f;
             bool mDead = false;
             bool mDeathBroadcasted = false;
+            std::uint64_t mEquipmentHash = 0;
+            bool mEquipmentBroadcasted = false;
+            bool mWasMoving = false;
             bool mInitialized = false;
         };
 
@@ -155,6 +173,11 @@ namespace TES3MPHeadless
         bool handlePlayerCast(::Player& player, mwmp::Cast& cast);
         bool handleObjectAction(unsigned char packetId, ::Player& player, mwmp::BaseObjectList& objectList);
 
+        void applyDynamicRecords(const mwmp::BaseWorldstate& worldstate);
+        void handleLuaRecordCreated(const std::type_info& type, const void* recordPtr);
+        void handleServerObjectEvent(unsigned char packetId, const mwmp::BaseObjectList& objectList);
+        void handleServerActorAI(const mwmp::BaseActorList& actorList);
+
         Files::ConfigurationManager& mCfgMgr;
         MWWorld::World& mWorld;
         HeadlessServerConfig mConfig;
@@ -165,10 +188,15 @@ namespace TES3MPHeadless
         std::unordered_map<unsigned short, PlayerValidationState> mPlayerValidation;
         std::unordered_set<unsigned short> mPlayersWithKnownCell;
         std::unordered_map<const MWWorld::LiveCellRefBase*, ActorSnapshot> mActorSnapshots;
+        std::unordered_map<const MWWorld::LiveCellRefBase*, std::uint64_t> mContainerSnapshots;
         std::vector<QueuedActorSync> mPendingActorSyncs;
+        CellInstanceManager mCellInstances;
         uint16_t mBoundPort = 0;
         double mBroadcastAccumulator = 0.0;
         std::uint64_t mAuthoritativeDeltaCount = 0;
+        AuthoritativeDeltaStats mDeltaStats;
+        std::size_t mStallBroadcastCycles = 0;
+        std::size_t mContainerSweepCounter = 0;
         bool mLogInitialized = false;
         bool mScriptsLoaded = false;
         bool mShutDown = false;

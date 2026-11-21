@@ -2674,6 +2674,13 @@ namespace MWMechanics
 
             movement.x() *= scale;
             movement.y() *= scale;
+#ifndef TES3MP_HEADLESS
+            if (mwmp::Main::get().isAuthoritativeServer()
+                && mwmp::Main::get().getCellController()->isDedicatedActor(mPtr))
+            {
+                movement = osg::Vec3f();
+            }
+#endif
             world->queueMovement(mPtr, movement);
         }
 
@@ -2910,6 +2917,9 @@ namespace MWMechanics
 
     bool CharacterController::isMovementAnimationControlled() const
     {
+#ifdef TES3MP_HEADLESS
+        return false;
+#else
         if (mHitState != CharState_None || mDeathState != CharState_None)
             return true;
 
@@ -2923,6 +2933,7 @@ namespace MWMechanics
         if (mMovementState != CharState_None)
             movementAnimationControlled = mMovementAnimationHasMovement;
         return movementAnimationControlled;
+#endif
     }
 
     void CharacterController::clearAnimQueue(bool clearScriptedAnims)

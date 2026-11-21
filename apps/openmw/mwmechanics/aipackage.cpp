@@ -2,10 +2,13 @@
 
 #include <components/detournavigator/agentbounds.hpp>
 #include <components/detournavigator/navigator.hpp>
+#include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/misc/coordinateconverter.hpp>
 #include <components/settings/values.hpp>
+
+#include <array>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -110,7 +113,7 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
     //... At current time, the first test is unnecessary. AI shuts down when actor is more than
     //... "actors processing range" setting value units from player, and exterior cells are 8192 units long and wide.
     //... But AI processing distance may increase in the future.
-    if (isNearInactiveCell(position)
+    if (isNearInactiveCell(actor, position)
         || MWBase::Environment::get().getMechanicsManager()->checkScriptedAnimationPlaying(actor))
     {
         actor.getClass().getMovementSettings(actor).mPosition[0] = 0;
@@ -244,6 +247,28 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
 
     // handle obstacles on the way
     evadeObstacles(actor);
+
+#ifdef TES3MP_HEADLESS
+    if (actor.isInCell() && actor.getCell()->getCell()->getDescription() == "Balmora, Guild of Fighters")
+    {
+        static std::map<std::string, int> sLoggedTicks;
+        const std::string refId = actor.getCellRef().getRefId().getRefIdString();
+        int& count = sLoggedTicks[refId];
+        if (count < 15)
+        {
+            ++count;
+            const auto& mov = actor.getClass().getMovementSettings(actor);
+            Log(Debug::Info) << "AI steer [" << refId << " tick=" << count << "]"
+                             << " pos=(" << position.x() << ", " << position.y() << ", " << position.z() << ")"
+                             << " rotZ=" << actor.getRefData().getPosition().rot[2]
+                             << " zAngleToNext=" << zAngleToNext
+                             << " nextPoint=(" << destination.x() << ", " << destination.y() << ", " << destination.z() << ")"
+                             << " movePos=(" << mov.mPosition[0] << ", " << mov.mPosition[1] << ", " << mov.mPosition[2] << ")"
+                             << " moveRotZ=" << mov.mRotation[2]
+                             << " evading=" << (mObstacleCheck.isEvading() ? "true" : "false");
+        }
+    }
+#endif
 
     return false;
 }
@@ -403,8 +428,35 @@ bool MWMechanics::AiPackage::doesPathNeedRecalc(const osg::Vec3f& newDest, const
         || mPathFinder.getPathCell() != actor.getCell();
 }
 
-bool MWMechanics::AiPackage::isNearInactiveCell(osg::Vec3f position)
+bool MWMechanics::AiPackage::isNearInactiveCell(const MWWorld::Ptr& actor, osg::Vec3f position)
 {
+#ifdef TES3MP_HEADLESS
+    // Multi-player headless simulation can have active 3x3 cell neighborhoods far from the dummy player Ptr.
+    if (!actor.isInCell() || !actor.getCell()->isExterior())
+        return false;
+
+    const ESM::RefId worldspace = actor.getCell()->getCell()->getWorldSpace();
+    constexpr float distanceFromEdge = 200.0f;
+    const std::array<osg::Vec2f, 4> corners{ {
+        { position.x() - distanceFromEdge, position.y() - distanceFromEdge },
+        { position.x() + distanceFromEdge, position.y() - distanceFromEdge },
+        { position.x() - distanceFromEdge, position.y() + distanceFromEdge },
+        { position.x() + distanceFromEdge, position.y() + distanceFromEdge },
+    } };
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    for (const osg::Vec2f& corner : corners)
+    {
+        const ESM::ExteriorCellLocation loc = ESM::positionToExteriorCellLocation(corner.x(), corner.y(), worldspace);
+        ESM::Cell extCell;
+        extCell.mData.mFlags = 0;
+        extCell.mData.mX = loc.mX;
+        extCell.mData.mY = loc.mY;
+        if (!world->isCellActive(extCell))
+            return true;
+    }
+    return false;
+#else
+    (void)actor;
     const MWWorld::Cell* playerCell = getPlayer().getCell()->getCell();
     if (playerCell->isExterior())
     {
@@ -423,6 +475,7 @@ bool MWMechanics::AiPackage::isNearInactiveCell(osg::Vec3f position)
     {
         return false;
     }
+#endif
 }
 
 bool MWMechanics::AiPackage::isReachableRotatingOnTheRun(const MWWorld::Ptr& actor, const osg::Vec3f& dest)

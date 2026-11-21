@@ -24,6 +24,9 @@ namespace mwmp
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s about %s", strPacketID.c_str(), Utils::getCellDescription(actorList.cell).c_str());
             mwmp::CellController *cellController = Main::get().getCellController();
 
+            if (guid == RakNet::UNASSIGNED_CRABNET_GUID)
+                Main::get().setAuthoritativeServer(true);
+
             // Never initialize LocalActors in a cell that is no longer loaded, if the server's packet arrived too late
             if (cellController->isActiveWorldCell(actorList.cell))
             {

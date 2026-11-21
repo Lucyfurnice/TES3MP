@@ -1,6 +1,14 @@
 #ifndef OPENMW_ACTORAPI_HPP
 #define OPENMW_ACTORAPI_HPP
 
+#ifdef TES3MP_HEADLESS
+#include <functional>
+namespace mwmp
+{
+    class BaseActorList;
+}
+#endif
+
 #define ACTORAPI \
     {"ReadReceivedActorList",                  ActorFunctions::ReadReceivedActorList},\
     {"ReadCellActorList",                      ActorFunctions::ReadCellActorList},\
@@ -1031,6 +1039,10 @@ public:
     static unsigned int GetActorRefNumIndex(unsigned int index) noexcept;
     static unsigned int GetActorKillerRefNumIndex(unsigned int index) noexcept;
     static void SetActorRefNumIndex(int refNum) noexcept;
+
+#ifdef TES3MP_HEADLESS
+    static void SetServerActorAIHandler(std::function<void(const mwmp::BaseActorList&)> handler);
+#endif
 };
 
 

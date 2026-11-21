@@ -49,6 +49,9 @@ namespace mwmp
 
         void updateWorld(float dt) const;
 
+        bool isAuthoritativeServer() const;
+        void setAuthoritativeServer(bool authoritative) const;
+
     private:
         static std::string resourceDir;
         static std::string address;
@@ -68,6 +71,7 @@ namespace mwmp
 
         GUIController *mGUIController;
         CellController *mCellController;
+        mutable bool mIsAuthoritativeServer = false;
 
         std::string server;
         unsigned short port;

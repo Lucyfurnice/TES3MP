@@ -56,6 +56,35 @@ namespace sol
 
 namespace MWLua
 {
+#ifdef TES3MP_HEADLESS
+    namespace
+    {
+        std::function<void(const std::type_info&, const void*)> sHeadlessRecordCreatedCallback;
+
+        template <class T>
+        const T* insertAndNotify(const T& record)
+        {
+            const T* inserted = MWBase::Environment::get().getESMStore()->insert(record);
+            if (inserted && sHeadlessRecordCreatedCallback)
+                sHeadlessRecordCreatedCallback(typeid(T), inserted);
+            return inserted;
+        }
+    }
+
+    void setHeadlessRecordCreatedCallback(std::function<void(const std::type_info&, const void*)> callback)
+    {
+        sHeadlessRecordCreatedCallback = std::move(callback);
+    }
+#else
+    namespace
+    {
+        template <class T>
+        const T* insertAndNotify(const T& record)
+        {
+            return MWBase::Environment::get().getESMStore()->insert(record);
+        }
+    }
+#endif
 
     static void checkGameInitialized(LuaUtil::LuaState* lua)
     {
@@ -186,71 +215,71 @@ namespace MWLua
         api["createRecord"] = sol::overload(
             [lua = context.mLua](const ESM::Activator& activator) -> const ESM::Activator* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(activator);
+                return insertAndNotify(activator);
             },
             [lua = context.mLua](const ESM::Armor& armor) -> const ESM::Armor* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(armor);
+                return insertAndNotify(armor);
             },
             [lua = context.mLua](const ESM::Clothing& clothing) -> const ESM::Clothing* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(clothing);
+                return insertAndNotify(clothing);
             },
             [lua = context.mLua](const ESM::Book& book) -> const ESM::Book* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(book);
+                return insertAndNotify(book);
             },
             [lua = context.mLua](const ESM::Enchantment& enchantment) -> const ESM::Enchantment* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(enchantment);
+                return insertAndNotify(enchantment);
             },
             [lua = context.mLua](const ESM::Miscellaneous& misc) -> const ESM::Miscellaneous* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(misc);
+                return insertAndNotify(misc);
             },
             [lua = context.mLua](const ESM::Potion& potion) -> const ESM::Potion* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(potion);
+                return insertAndNotify(potion);
             },
             [lua = context.mLua](const ESM::Probe& probe) -> const ESM::Probe* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(probe);
+                return insertAndNotify(probe);
             },
             [lua = context.mLua](const ESM::Spell& spell) -> const ESM::Spell* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(spell);
+                return insertAndNotify(spell);
             },
             [lua = context.mLua](const ESM::Static& stat) -> const ESM::Static* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(stat);
+                return insertAndNotify(stat);
             },
             [lua = context.mLua](const ESM::NPC& npc) -> const ESM::NPC* {
                 checkGameInitialized(lua);
                 if (npc.mId.empty())
-                    return MWBase::Environment::get().getESMStore()->insert(npc);
+                    return insertAndNotify(npc);
                 ESM::NPC copy = npc;
                 copy.mId = {};
-                return MWBase::Environment::get().getESMStore()->insert(copy);
+                return insertAndNotify(copy);
             },
             [lua = context.mLua](const ESM::Creature& crea) -> const ESM::Creature* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(crea);
+                return insertAndNotify(crea);
             },
             [lua = context.mLua](const ESM::Container& cont) -> const ESM::Container* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(cont);
+                return insertAndNotify(cont);
             },
             [lua = context.mLua](const ESM::Door& cont) -> const ESM::Door* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(cont);
+                return insertAndNotify(cont);
             },
             [lua = context.mLua](const ESM::Weapon& weapon) -> const ESM::Weapon* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(weapon);
+                return insertAndNotify(weapon);
             },
             [lua = context.mLua](const ESM::Light& light) -> const ESM::Light* {
                 checkGameInitialized(lua);
-                return MWBase::Environment::get().getESMStore()->insert(light);
+                return insertAndNotify(light);
             });
 
         api["_runStandardActivationAction"] = [context](const GObject& object, const GObject& actor) {

@@ -461,9 +461,50 @@ namespace MWRender
     }
 
     MWWorld::MovementDirectionFlags Animation::getSupportedMovementDirections(
-        std::span<const std::string_view> /*prefixes*/) const
+        std::span<const std::string_view> prefixes) const
     {
-        return 0;
+        MWWorld::MovementDirectionFlags result = 0;
+        for (const std::string_view prefix : prefixes)
+        {
+            if (prefix.empty())
+            {
+                for (const auto& source : mAnimSources)
+                {
+                    if (!source || !source->mKeyframes)
+                        continue;
+                    for (const auto& [time, key] : source->mKeyframes->mTextKeys)
+                    {
+                        (void)time;
+                        const std::size_t colon = key.find(':');
+                        const std::string_view group = colon == std::string_view::npos ? std::string_view(key)
+                                                                                       : std::string_view(key).substr(0, colon);
+                        if (group.ends_with("forward"))
+                            result |= MWWorld::MovementDirectionFlag_Forward;
+                        else if (group.ends_with("back"))
+                            result |= MWWorld::MovementDirectionFlag_Back;
+                        else if (group.ends_with("left"))
+                            result |= MWWorld::MovementDirectionFlag_Left;
+                        else if (group.ends_with("right"))
+                            result |= MWWorld::MovementDirectionFlag_Right;
+                    }
+                }
+                continue;
+            }
+            if (hasAnimation(std::string(prefix) + "forward"))
+                result |= MWWorld::MovementDirectionFlag_Forward;
+            if (hasAnimation(std::string(prefix) + "back"))
+                result |= MWWorld::MovementDirectionFlag_Back;
+            if (hasAnimation(std::string(prefix) + "left"))
+                result |= MWWorld::MovementDirectionFlag_Left;
+            if (hasAnimation(std::string(prefix) + "right"))
+                result |= MWWorld::MovementDirectionFlag_Right;
+        }
+        if (result == 0)
+        {
+            result = MWWorld::MovementDirectionFlag_Forward | MWWorld::MovementDirectionFlag_Back
+                | MWWorld::MovementDirectionFlag_Left | MWWorld::MovementDirectionFlag_Right;
+        }
+        return result;
     }
 
     void Animation::setAlpha(float alpha)

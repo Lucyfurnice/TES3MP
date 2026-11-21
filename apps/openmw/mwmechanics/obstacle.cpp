@@ -200,7 +200,10 @@ namespace MWMechanics
                 if (newEvadeDirectionIndex == std::size(evadeDirections))
                     newEvadeDirectionIndex = 0;
                 if ((evadeDirections[newEvadeDirectionIndex].mRequiredAnimation & supportedMovementDirection) != 0)
+                {
+                    mEvadeDirectionIndex = newEvadeDirectionIndex;
                     break;
+                }
             } while (mEvadeDirectionIndex != newEvadeDirectionIndex);
             return;
         }

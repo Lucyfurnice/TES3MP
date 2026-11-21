@@ -247,6 +247,23 @@ CellController *Main::getCellController() const
     return mCellController;
 }
 
+bool Main::isAuthoritativeServer() const
+{
+    return mIsAuthoritativeServer;
+}
+
+void Main::setAuthoritativeServer(bool authoritative) const
+{
+    if (mIsAuthoritativeServer == authoritative)
+        return;
+
+    mIsAuthoritativeServer = authoritative;
+    if (authoritative)
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Authoritative server mode enabled: suppressing client actor/world authority");
+    else
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Authoritative server mode cleared");
+}
+
 bool Main::isValidPacketScript(std::string scriptId)
 {
     mwmp::BaseWorldstate *worldstate = get().getNetworking()->getWorldstate();

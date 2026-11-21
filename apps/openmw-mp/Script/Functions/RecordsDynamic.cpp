@@ -11,6 +11,10 @@
 
 using namespace mwmp;
 
+#ifdef TES3MP_HEADLESS
+static std::function<void(const mwmp::BaseWorldstate&)> sRecordDynamicHandler;
+#endif
+
 SpellRecord tempSpell;
 PotionRecord tempPotion;
 EnchantmentRecord tempEnchantment;
@@ -1939,6 +1943,11 @@ void RecordsDynamicFunctions::AddRecordInventoryItem() noexcept
 
 void RecordsDynamicFunctions::SendRecordDynamic(unsigned short pid, bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sRecordDynamicHandler)
+        sRecordDynamicHandler(WorldstateFunctions::writeWorldstate);
+#endif
+
     Player *player;
     GET_PLAYER(pid, player, );
 
@@ -1952,3 +1961,10 @@ void RecordsDynamicFunctions::SendRecordDynamic(unsigned short pid, bool sendToO
     if (sendToOtherPlayers)
         packet->Send(true);
 }
+
+#ifdef TES3MP_HEADLESS
+void RecordsDynamicFunctions::SetRecordDynamicHandler(std::function<void(const mwmp::BaseWorldstate&)> handler)
+{
+    sRecordDynamicHandler = std::move(handler);
+}
+#endif

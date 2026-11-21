@@ -30,7 +30,14 @@
     {"SetCell",                 CellFunctions::SetCell},\
     {"SetExteriorCell",         CellFunctions::SetExteriorCell},\
     \
-    {"SendCell",                CellFunctions::SendCell}\
+    {"SendCell",                CellFunctions::SendCell},\
+    \
+    {"CreateParty",             CellFunctions::CreateParty},\
+    {"AddPlayerToParty",        CellFunctions::AddPlayerToParty},\
+    {"RemovePlayerFromParty",   CellFunctions::RemovePlayerFromParty},\
+    {"GetPlayerPartyId",        CellFunctions::GetPlayerPartyId},\
+    {"SetInstancedDungeon",     CellFunctions::SetInstancedDungeon},\
+    {"GetOrCreateDungeonInstance", CellFunctions::GetOrCreateDungeonInstance}\
     HEADLESS_CELLAPI
 
 
@@ -152,9 +159,23 @@ public:
     */
     static void SendCell(unsigned short pid) noexcept;
 
+    static unsigned int CreateParty(unsigned short leaderPid) noexcept;
+    static bool AddPlayerToParty(unsigned int partyId, unsigned short pid) noexcept;
+    static bool RemovePlayerFromParty(unsigned short pid) noexcept;
+    static unsigned int GetPlayerPartyId(unsigned short pid) noexcept;
+    static void SetInstancedDungeon(const char *cellName, bool instanced) noexcept;
+    static const char *GetOrCreateDungeonInstance(unsigned int partyId, const char *baseCellName) noexcept;
+
 #ifdef TES3MP_HEADLESS
     static void SetCellPinned(const char *cellDescription, bool pinned) noexcept;
     static void SetCellPinnedHandler(std::function<void(const char *, bool)> handler);
+    static void SetPartyHandlers(
+        std::function<unsigned int(unsigned short)> createParty,
+        std::function<bool(unsigned int, unsigned short)> addPlayer,
+        std::function<bool(unsigned short)> removePlayer,
+        std::function<unsigned int(unsigned short)> getPartyId,
+        std::function<void(const char *, bool)> setInstancedDungeon,
+        std::function<std::string(unsigned int, const char *)> getOrCreateInstance);
 #endif
 
 };

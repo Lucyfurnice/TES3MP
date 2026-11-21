@@ -20,6 +20,9 @@ const BaseActor emptyActor = {};
 std::vector<ESM::ActiveEffect> storedActorActiveEffects;
 
 static std::string tempCellDescription;
+#ifdef TES3MP_HEADLESS
+static std::function<void(const mwmp::BaseActorList&)> sServerActorAIHandler;
+#endif
 
 void ActorFunctions::ReadReceivedActorList() noexcept
 {
@@ -669,6 +672,10 @@ void ActorFunctions::SendActorDeath(bool sendToOtherVisitors, bool skipAttachedP
 
 void ActorFunctions::SendActorAI(bool sendToOtherVisitors, bool skipAttachedPlayer) noexcept
 {
+#ifdef TES3MP_HEADLESS
+    if (sServerActorAIHandler)
+        sServerActorAIHandler(writeActorList);
+#endif
     mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_AI);
     actorPacket->setActorList(&writeActorList);
 
@@ -738,3 +745,10 @@ void ActorFunctions::SetActorRefNumIndex(int refNum) noexcept
 {
     tempActor.refNum = refNum;
 }
+
+#ifdef TES3MP_HEADLESS
+void ActorFunctions::SetServerActorAIHandler(std::function<void(const mwmp::BaseActorList&)> handler)
+{
+    sServerActorAIHandler = std::move(handler);
+}
+#endif

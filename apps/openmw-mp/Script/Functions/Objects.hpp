@@ -1,6 +1,14 @@
 #ifndef OPENMW_OBJECTAPI_HPP
 #define OPENMW_OBJECTAPI_HPP
 
+#ifdef TES3MP_HEADLESS
+#include <functional>
+namespace mwmp
+{
+    class BaseObjectList;
+}
+#endif
+
 #define OBJECTAPI \
     {"ReadReceivedObjectList",                ObjectFunctions::ReadReceivedObjectList},\
     \
@@ -1556,6 +1564,10 @@ public:
     static void SetEventConsoleCommand(const char* consoleCommand) noexcept;
     static void SetObjectRefNumIndex(int refNum) noexcept;
     static void AddWorldObject() noexcept;
+
+#ifdef TES3MP_HEADLESS
+    static void SetServerObjectEventHandler(std::function<void(unsigned char, const mwmp::BaseObjectList&)> handler);
+#endif
 
 };
 

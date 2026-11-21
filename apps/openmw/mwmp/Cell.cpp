@@ -34,6 +34,13 @@ Cell::~Cell()
 
 void Cell::updateLocal(bool forceUpdate)
 {
+    if (Main::get().isAuthoritativeServer())
+    {
+        if (!localActors.empty())
+            uninitializeLocalActors();
+        return;
+    }
+
     if (localActors.empty())
         return;
 
@@ -140,11 +147,45 @@ void Cell::readPositions(ActorList& actorList)
     {
         std::string mapIndex = Main::get().getCellController()->generateMapIndex(baseActor);
 
+        if (dedicatedActors.count(mapIndex) == 0 && Main::get().getCellController()->isDedicatedActor(baseActor.refNum, baseActor.mpNum))
+        {
+            // Actor walked across a cell boundary on the server: migrate its DedicatedActor into this cell.
+            DedicatedActor* existing = Main::get().getCellController()->getDedicatedActor(baseActor.refNum, baseActor.mpNum);
+            if (existing)
+            {
+                std::string oldDesc = Utils::getCellDescription(existing->cell);
+                if (Main::get().getCellController()->isInitializedCell(oldDesc))
+                {
+                    Cell* oldCell = Main::get().getCellController()->getCell(existing->cell);
+                    if (oldCell && oldCell != this)
+                        oldCell->dedicatedActors.erase(mapIndex);
+                }
+                existing->cell = store->getCell()->getEsm3();
+                dedicatedActors[mapIndex] = existing;
+                Main::get().getCellController()->setDedicatedActorRecord(mapIndex, getShortDescription());
+                existing->setCell(store);
+            }
+        }
+
         if (dedicatedActors.count(mapIndex) > 0)
         {
             DedicatedActor *actor = dedicatedActors[mapIndex];
-            actor->position = baseActor.position;
-            actor->direction = baseActor.direction;
+            if (actor->getPtr().isEmpty() || !actor->getPtr().isInCell() || !actor->getPtr().getRefData().getBaseNode())
+            {
+                MWWorld::Ptr freshPtr = store->searchExact(baseActor.refNum, baseActor.mpNum, baseActor.refId, true);
+                if (!freshPtr.isEmpty())
+                    actor->setPtr(freshPtr);
+            }
+            actor->onPositionPacket(baseActor.position, baseActor.direction);
+
+            if (!mLoggedFirstAuthoritativePos && Main::get().isAuthoritativeServer())
+            {
+                mLoggedFirstAuthoritativePos = true;
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Applied authoritative ID_ACTOR_POSITION for %s %i-%i in %s -> (%.1f, %.1f, %.1f)",
+                    actor->refId.c_str(), baseActor.refNum, baseActor.mpNum, getShortDescription().c_str(),
+                    baseActor.position.pos[0], baseActor.position.pos[1], baseActor.position.pos[2]);
+            }
 
             if (!actor->hasPositionData)
             {
@@ -498,6 +539,12 @@ void Cell::initializeLocalActor(const MWWorld::Ptr& ptr)
 
 void Cell::initializeLocalActors()
 {
+    if (Main::get().isAuthoritativeServer())
+    {
+        uninitializeLocalActors();
+        return;
+    }
+
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Initializing LocalActors in %s", getShortDescription().c_str());
 
     store->forEach([&](const MWWorld::Ptr& ptr)
@@ -549,6 +596,10 @@ void Cell::initializeDedicatedActors(ActorList& actorList)
         if (dedicatedActors.count(mapIndex) == 0)
         {
             MWWorld::Ptr ptrFound = store->searchExact(baseActor.refNum, baseActor.mpNum, baseActor.refId, true);
+
+            if (ptrFound.isEmpty() && Main::get().isAuthoritativeServer())
+                ptrFound = MWBase::Environment::get().getWorld()->searchPtrViaUniqueIndex(
+                    baseActor.refNum, baseActor.mpNum);
 
             if (ptrFound.isEmpty()) continue;
 
@@ -602,6 +653,9 @@ DedicatedActor *Cell::getDedicatedActor(std::string actorIndex)
 
 bool Cell::hasLocalAuthority()
 {
+    if (Main::get().isAuthoritativeServer())
+        return false;
+
     return authorityGuid == Main::get().getLocalPlayer()->guid;
 }
 

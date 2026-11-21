@@ -210,6 +210,10 @@ namespace MWWorld
         {
             mNavigatorObservers = std::move(observers);
         }
+        /// Update navigator bounds/tiles and block on required tiles when a new cell just loaded.
+        void prepareNavigation();
+        bool hasActiveNavigatorWorldspace() const { return mHasLastNavBounds; }
+        ESM::RefId getActiveNavigatorWorldspace() const { return mLastNavWorldspace; }
 #endif
 
         // FIXME

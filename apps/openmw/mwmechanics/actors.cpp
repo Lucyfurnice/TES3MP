@@ -1784,10 +1784,16 @@ namespace MWMechanics
                     */
                     bool isLocalActor = mwmp::Main::get().getCellController()->isLocalActor(actor.getPtr());
                     bool isDedicatedActor = mwmp::Main::get().getCellController()->isDedicatedActor(actor.getPtr());
+#ifndef TES3MP_HEADLESS
+                    const bool aiActiveForActor
+                        = aiActive && (!mwmp::Main::get().isAuthoritativeServer() || isPlayer);
+#else
+                    const bool aiActiveForActor = aiActive;
+#endif
 
-                    if (inProcessingRange && (aiActive || isLocalActor || isDedicatedActor))
+                    if (inProcessingRange && (aiActiveForActor || isLocalActor || isDedicatedActor))
                     {
-                        if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed && (isLocalActor || aiActive))
+                        if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed && (isLocalActor || aiActiveForActor))
                         {
                             if (!isPlayer)
                                 adjustCommandedActor(actor.getPtr());
@@ -1810,10 +1816,10 @@ namespace MWMechanics
                         if (mTimerUpdateHeadTrack == 0)
                             updateHeadTracking(actor.getPtr(), mActors, isPlayer, ctrl);
 
-                        if (actor.getPtr().getClass().isNpc() && !isPlayer && (isLocalActor || aiActive))
+                        if (actor.getPtr().getClass().isNpc() && !isPlayer && (isLocalActor || aiActiveForActor))
                             updateCrimePursuit(actor.getPtr(), duration, cachedAllies);
 
-                        if (!isPlayer && (isLocalActor || aiActive))
+                        if (!isPlayer && (isLocalActor || aiActiveForActor))
                         {
                             CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
                             if (isConscious(actor.getPtr()) && !(luaControls && luaControls->mDisableAI))
@@ -1825,7 +1831,7 @@ namespace MWMechanics
                             }
                         }
                     }
-                    else if ((isLocalActor || aiActive) && !isPlayer && isConscious(actor.getPtr())
+                    else if ((isLocalActor || aiActiveForActor) && !isPlayer && isConscious(actor.getPtr())
                         && !(luaControls && luaControls->mDisableAI))
                     {
                         CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
