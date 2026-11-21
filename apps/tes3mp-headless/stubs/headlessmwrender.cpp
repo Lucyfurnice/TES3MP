@@ -27,6 +27,8 @@
 #include <components/sceneutil/stateupdater.hpp>
 #include <components/sceneutil/unrefqueue.hpp>
 #include <components/sceneutil/workqueue.hpp>
+#include <components/esm3/loadcell.hpp>
+#include <components/terrain/view.hpp>
 #include <components/terrain/world.hpp>
 
 #include <osg/Geometry>
@@ -487,18 +489,50 @@ namespace MWRender
 
     // ---- MWRender::RenderingManager ----
 
+    namespace
+    {
+        class HeadlessTerrainView final : public Terrain::View
+        {
+        public:
+            void reset() override {}
+        };
+
+        class HeadlessTerrainWorld final : public Terrain::World
+        {
+        public:
+            HeadlessTerrainWorld(osg::Group* parent, ESM::RefId worldspace)
+                : Terrain::World(parent, nullptr, 0u, worldspace)
+            {
+            }
+
+            Terrain::View* createView() override { return new HeadlessTerrainView; }
+            void loadCell(int /*x*/, int /*y*/) override {}
+            void unloadCell(int /*x*/, int /*y*/) override {}
+            void setBordersVisible(bool /*visible*/) override {}
+        };
+    }
+
+    RenderingManager::WorldspaceChunkMgr& RenderingManager::getWorldspaceChunkMgr(ESM::RefId worldspace)
+    {
+        auto& mgr = mWorldspaceChunks[worldspace];
+        if (!mgr.mTerrain)
+            mgr.mTerrain = std::make_unique<HeadlessTerrainWorld>(mRootNode, worldspace);
+        return mgr;
+    }
+
     RenderingManager::RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
         Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue, DetourNavigator::Navigator& navigator,
         const MWWorld::GroundcoverStore& groundcoverStore, SceneUtil::UnrefQueue& unrefQueue)
         : mSkyBlending(false)
         , mViewer(viewer)
         , mRootNode(rootNode ? std::move(rootNode) : osg::ref_ptr<osg::Group>(new osg::Group))
+        , mSceneRoot(new SceneUtil::LightManager(SceneUtil::LightSettings{}))
         , mResourceSystem(resourceSystem)
         , mWorkQueue(workQueue)
         , mSunLight(new osg::Light)
         , mNavigator(navigator)
         , mObjects(std::make_unique<Objects>(resourceSystem, mRootNode, unrefQueue))
-        , mTerrain(nullptr)
+        , mTerrain(getWorldspaceChunkMgr(ESM::Cell::sDefaultWorldspaceId).mTerrain.get())
         , mObjectPaging(nullptr)
         , mGroundcover(nullptr)
         , mSky(std::make_unique<SkyManager>(mRootNode, mRootNode, nullptr,
@@ -597,7 +631,13 @@ namespace MWRender
         mObjects->removeCell(store);
     }
 
-    void RenderingManager::enableTerrain(bool /*enable*/, ESM::RefId /*worldspace*/) {}
+    void RenderingManager::enableTerrain(bool enable, ESM::RefId worldspace)
+    {
+        if (enable)
+            mTerrain = getWorldspaceChunkMgr(worldspace).mTerrain.get();
+        else
+            mTerrain = nullptr;
+    }
 
     void RenderingManager::updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& updated)
     {

@@ -432,8 +432,10 @@ static void crash_catcher(int signum, siginfo_t* siginfo, void* /*context*/)
     // even faulty applications shouldn't be able to freeze the X server.
     usleep(100000);
 
-    const std::string message = "OpenMW has encountered a fatal error.\nCrash log saved to '" + std::string(logfile)
-        + "'.\n Please report this to https://gitlab.com/OpenMW/openmw/issues !";
+    const std::string message = "TES3MP / OpenMW has encountered a fatal error.\nCrash log saved to '"
+        + std::string(logfile)
+        + "'.\nAlso attach tes3mp-headless.log from your logs directory.\n"
+        + "Please report this using .templates/ISSUE.MD at:\nhttps://github.com/Lucyfurnice/TES3MP/issues";
     SDL_ShowSimpleMessageBox(0, "Fatal Error", message.c_str(), nullptr);
 
     exit(0);

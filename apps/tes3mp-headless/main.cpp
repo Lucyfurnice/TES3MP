@@ -125,8 +125,17 @@ namespace
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
 
-        engine.init();
-        engine.run();
+        try
+        {
+            engine.init();
+            engine.run();
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "Fatal error: " << e.what();
+            gEngineInstance = nullptr;
+            return 1;
+        }
 
         gEngineInstance = nullptr;
         return 0;
@@ -135,5 +144,5 @@ namespace
 
 int main(int argc, char** argv)
 {
-    return Debug::wrapApplication(&runHeadless, argc, argv, "TES3MP Headless");
+    return Debug::wrapApplication(&runHeadless, argc, argv, "TES3MP-Headless");
 }

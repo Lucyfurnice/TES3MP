@@ -218,9 +218,12 @@ namespace Crash
             {
                 handleCrash(true);
                 TerminateProcess(mAppProcessHandle, 0xDEAD);
-                std::string message = "OpenMW has frozen.\nCrash dump saved to '"
-                    + Misc::StringUtils::u8StringToString(getFreezeDumpPath(*mShm).u8string())
-                    + "'.\nPlease report this to https://gitlab.com/OpenMW/openmw/issues !";
+                const std::filesystem::path freezePath = getFreezeDumpPath(*mShm);
+                std::string message = "TES3MP / OpenMW has frozen.\nCrash dump saved to '"
+                    + Misc::StringUtils::u8StringToString(freezePath.u8string())
+                    + "'.\nAlso attach the application log (e.g. tes3mp-headless.log) from '"
+                    + Misc::StringUtils::u8StringToString(freezePath.parent_path().u8string())
+                    + "'.\nPlease report this using .templates/ISSUE.MD at:\nhttps://github.com/Lucyfurnice/TES3MP/issues";
                 SDL_ShowSimpleMessageBox(0, "Fatal Error", message.c_str(), nullptr);
             }
         }

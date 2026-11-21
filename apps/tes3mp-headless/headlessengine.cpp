@@ -193,7 +193,8 @@ namespace TES3MPHeadless
             mFileCollections, mConfig.mContentFiles, mConfig.mGroundcoverFiles, mEncoder.get(), listener);
         listener->loadingOff();
 
-        mWorld->init(Debug::Warning, nullptr, nullptr, mWorkQueue.get(), *mUnrefQueue);
+        osg::ref_ptr<osg::Group> rootNode(new osg::Group);
+        mWorld->init(Debug::Warning, nullptr, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
         mEnvironment.setWorldScene(mWorld->getWorldScene());
         mWorld->setupPlayer();
         mWorld->setRandomSeed(mConfig.mRandomSeed);
