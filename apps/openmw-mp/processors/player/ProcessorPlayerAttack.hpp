@@ -20,6 +20,8 @@ namespace mwmp
 
             if (!player.creatureStats.mDead)
             {
+                if (Networking::getPtr() && !Networking::getPtr()->notifyPlayerAttack(player))
+                    return;
                 player.sendToLoaded(&packet);
             }
         }

@@ -34,7 +34,8 @@ namespace mwmp
 
                 // If the cell is loaded, only accept regular cell changes from a cell's authority, but accept follower
                 // cell changes from other players
-                if (*serverCell->getAuthority() == actorList.guid || isFollowerCellChange)
+                if (!Networking::get().getAuthoritativeServer()
+                    && (*serverCell->getAuthority() == actorList.guid || isFollowerCellChange))
                 {
                     serverCell->removeActors(&actorList);
                     isAccepted = true;

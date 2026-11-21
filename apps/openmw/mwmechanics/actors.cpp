@@ -1659,9 +1659,14 @@ namespace MWMechanics
                 MWBase::LuaManager::ActorControls* luaControls
                     = MWBase::Environment::get().getLuaManager()->getActorControls(actor.getPtr());
 
+#ifdef TES3MP_HEADLESS
+                // In multi-cell headless mode, active residency already scopes loaded actors to occupied cells.
+                const bool inProcessingRange = true;
+#else
                 const float distSqr = (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length2();
                 // AI processing is only done within given distance to the player.
                 const bool inProcessingRange = distSqr <= actorsProcessingRange * actorsProcessingRange;
+#endif
 
                 // If dead or no longer in combat, no longer store any actors who attempted to hit us. Also remove for
                 // the player.
@@ -1841,7 +1846,14 @@ namespace MWMechanics
                     MWMechanics::AiSequence& seq = stats.getAiSequence();
                     alwaysActive = !seq.isEmpty() && seq.getActivePackage().alwaysActive();
                 }
+#ifdef TES3MP_HEADLESS
+                // Active cell residency already scopes loaded actors to occupied player neighborhoods;
+                // keep physics & animation active for all loaded actors regardless of dummy host player distance.
+                (void)dist;
+                const bool inRange = true;
+#else
                 const bool inRange = isPlayer || dist <= actorsProcessingRange || alwaysActive;
+#endif
                 const int activeFlag = isPlayer ? 2 : 1; // Can be changed back to '2' to keep updating bounding boxes
                                                          // off screen (more accurate, but slower)
                 const int active = inRange ? activeFlag : 0;
@@ -1877,6 +1889,10 @@ namespace MWMechanics
                 if (!actor.getPositionAdjusted())
                 {
                     actor.getPtr().getClass().adjustPosition(actor.getPtr(), false);
+#ifdef TES3MP_HEADLESS
+                    // Ensure initial spawn/ground snap never carries residual fall height into lethal fall damage.
+                    actor.getPtr().getClass().getCreatureStats(actor.getPtr()).land(false);
+#endif
                     actor.setPositionAdjusted(true);
                 }
 

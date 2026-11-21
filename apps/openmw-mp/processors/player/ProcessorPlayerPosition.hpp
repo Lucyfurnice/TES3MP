@@ -15,6 +15,8 @@ namespace mwmp
 
         void Do(PlayerPacket &packet, Player &player) override
         {
+            if (Networking::getPtr() && !Networking::getPtr()->notifyPlayerPosition(player))
+                return;
             player.sendToLoaded(&packet);
         }
     };

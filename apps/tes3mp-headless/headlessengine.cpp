@@ -113,6 +113,7 @@ namespace TES3MPHeadless
         serverCfg.mServerCfgPath = mConfig.mServerCfgPath;
         serverCfg.mPortOverride = mConfig.mPort;
         serverCfg.mHasPortOverride = mConfig.mHasPortOverride;
+        serverCfg.mAuthority.authoritativeMode = mConfig.mAuthoritative;
         mServer = std::make_unique<HeadlessServer>(mCfgMgr, *mWorld, std::move(serverCfg));
         mServer->init();
     }
@@ -271,10 +272,10 @@ namespace TES3MPHeadless
             mServer->pollNetwork();
     }
 
-    void HeadlessEngine::broadcastNetworkState(unsigned int /*tickNumber*/)
+    void HeadlessEngine::broadcastNetworkState(unsigned int /*tickNumber*/, float dt)
     {
         if (mServer)
-            mServer->broadcastNetworkState();
+            mServer->broadcastNetworkState(dt);
     }
 
     bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt)
@@ -364,7 +365,7 @@ namespace TES3MPHeadless
             if (!stepSimulation(tickNumber, scaledDt))
                 break;
 
-            broadcastNetworkState(tickNumber);
+            broadcastNetworkState(tickNumber, scaledDt);
             ++tickNumber;
 
             if (tickNumber == 1 || (tickNumber % static_cast<unsigned int>(std::max(1.0, mConfig.mTickRate))) == 0)
@@ -374,7 +375,8 @@ namespace TES3MPHeadless
                                  << " | simTime=" << mWorld->getTimeManager()->getSimulationTime()
                                  << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>")
                                  << " | activeCells=" << mWorld->getWorldScene().getActiveCells().size()
-                                 << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0);
+                                 << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0)
+                                 << " | authDeltas=" << (mServer ? mServer->getAuthoritativeDeltaCount() : 0);
             }
 
             nextTickTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(stepDuration);

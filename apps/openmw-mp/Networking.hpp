@@ -2,6 +2,7 @@
 #define OPENMW_NETWORKING_HPP
 
 #include <functional>
+#include <components/openmw-mp/Base/ServerAuthority.hpp>
 #include <components/openmw-mp/Controllers/SystemPacketController.hpp>
 #include <components/openmw-mp/Controllers/PlayerPacketController.hpp>
 #include <components/openmw-mp/Controllers/ActorPacketController.hpp>
@@ -69,6 +70,19 @@ namespace  mwmp
         bool getScriptErrorIgnoringState();
         void setScriptErrorIgnoringState(bool state);
 
+        bool getAuthoritativeServer() const;
+        void setAuthoritativeServer(bool state);
+
+        void setPlayerAttackCallback(std::function<bool(Player&, Attack&)> callback);
+        void setPlayerCastCallback(std::function<bool(Player&, Cast&)> callback);
+        void setObjectActionCallback(std::function<bool(unsigned char, Player&, BaseObjectList&)> callback);
+        void setPlayerPositionCallback(std::function<bool(Player&)> callback);
+
+        bool notifyPlayerAttack(Player& player);
+        bool notifyPlayerCast(Player& player);
+        bool notifyObjectAction(unsigned char packetId, Player& player, BaseObjectList& objectList);
+        bool notifyPlayerPosition(Player& player);
+
         MasterClient *getMasterClient();
         void InitQuery(std::string queryAddr, unsigned short queryPort);
         void setServerPassword(std::string passw) noexcept;
@@ -103,8 +117,13 @@ namespace  mwmp
 
         bool running;
         int exitCode;
+        bool authoritativeServer = false;
         PacketPreInit::PluginContainer samples;
         std::function<void(unsigned char, const BaseActorList&)> actorSyncCallback;
+        std::function<bool(Player&, Attack&)> playerAttackCallback;
+        std::function<bool(Player&, Cast&)> playerCastCallback;
+        std::function<bool(unsigned char, Player&, BaseObjectList&)> objectActionCallback;
+        std::function<bool(Player&)> playerPositionCallback;
     };
 }
 

@@ -4,13 +4,19 @@
 #include <apps/openmw/mwworld/ptr.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
+#include <components/openmw-mp/Base/BaseObject.hpp>
+#include <components/openmw-mp/Base/BaseStructs.hpp>
+#include <components/openmw-mp/Base/ServerAuthority.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+class Player;
 
 namespace Files
 {
@@ -20,6 +26,7 @@ namespace Files
 namespace MWWorld
 {
     class CellStore;
+    struct LiveCellRefBase;
     class World;
 }
 
@@ -41,6 +48,7 @@ namespace TES3MPHeadless
         std::filesystem::path mServerCfgPath;
         uint16_t mPortOverride = 0; // 0 = use value from server config
         bool mHasPortOverride = false;
+        mwmp::ServerAuthorityConfig mAuthority;
     };
 
     /// Bridges tes3mp-server (RakNet, PacketController, Player/Cell registries, and LuaJIT ScriptController)
@@ -64,8 +72,8 @@ namespace TES3MPHeadless
         /// Drain all pending RakNet packets without blocking and sync player/actor transforms into MWWorld.
         void pollNetwork();
 
-        /// Advance tes3mp-server TimerAPI and flush periodic outbound state.
-        void broadcastNetworkState();
+        /// Advance tes3mp-server TimerAPI and broadcast authoritative MWMechanics/MWWorld actor deltas.
+        void broadcastNetworkState(float dt);
 
         /// Return false when a server script or fatal error requests shutdown.
         bool isRunning() const;
@@ -75,6 +83,8 @@ namespace TES3MPHeadless
 
         uint16_t getBoundPort() const;
         std::size_t getConnectedPlayerCount() const;
+        bool isAuthoritative() const;
+        std::uint64_t getAuthoritativeDeltaCount() const;
 
     private:
         struct QueuedActorSync
@@ -83,11 +93,43 @@ namespace TES3MPHeadless
             mwmp::BaseActorList mActorList;
         };
 
+        struct ActorSnapshot
+        {
+            osg::Vec3f mPos;
+            osg::Vec3f mRot;
+            unsigned int mMovementFlags = 0;
+            char mDrawState = 0;
+            bool mIsFlying = false;
+            float mHealth = 0.f;
+            float mMagicka = 0.f;
+            float mFatigue = 0.f;
+            bool mDead = false;
+            bool mDeathBroadcasted = false;
+            bool mInitialized = false;
+        };
+
+        struct PlayerValidationState
+        {
+            ESM::Cell mLastCell;
+            osg::Vec3f mLastPos;
+            std::chrono::steady_clock::time_point mLastUpdate;
+            bool mInitialized = false;
+        };
+
         std::filesystem::path resolveConfigPath(const std::filesystem::path& candidate) const;
         std::filesystem::path resolvePluginHome(const std::string& rawHome, const std::filesystem::path& cfgDir) const;
         MWWorld::CellStore* resolveCellStore(const ESM::Cell& cell) const;
+        MWWorld::Ptr resolveTargetPtr(const mwmp::Target& target, const MWWorld::CellStore* hintCell) const;
+        bool isPlayerAnchorPtr(const MWWorld::Ptr& ptr) const;
+
         void syncPlayersToWorld();
         void syncActorsToWorld();
+        void broadcastAuthoritativeActorDeltas();
+
+        bool validatePlayerPosition(::Player& player);
+        bool handlePlayerAttack(::Player& player, mwmp::Attack& attack);
+        bool handlePlayerCast(::Player& player, mwmp::Cast& cast);
+        bool handleObjectAction(unsigned char packetId, ::Player& player, mwmp::BaseObjectList& objectList);
 
         Files::ConfigurationManager& mCfgMgr;
         MWWorld::World& mWorld;
@@ -96,8 +138,12 @@ namespace TES3MPHeadless
         RakNet::RakPeerInterface* mPeer = nullptr;
         std::unique_ptr<mwmp::Networking> mNetworking;
         std::unordered_map<unsigned short, MWWorld::Ptr> mPlayerAnchors;
+        std::unordered_map<unsigned short, PlayerValidationState> mPlayerValidation;
+        std::unordered_map<const MWWorld::LiveCellRefBase*, ActorSnapshot> mActorSnapshots;
         std::vector<QueuedActorSync> mPendingActorSyncs;
         uint16_t mBoundPort = 0;
+        double mBroadcastAccumulator = 0.0;
+        std::uint64_t mAuthoritativeDeltaCount = 0;
         bool mLogInitialized = false;
         bool mScriptsLoaded = false;
         bool mShutDown = false;

@@ -534,7 +534,15 @@ void ActorFunctions::SendActorAuthority() noexcept
 
     if (serverCell != nullptr)
     {
-        serverCell->setAuthority(writeActorList.guid);
+        if (mwmp::Networking::get().getAuthoritativeServer())
+        {
+            serverCell->setAuthority(RakNet::UNASSIGNED_CRABNET_GUID);
+            writeActorList.guid = RakNet::UNASSIGNED_CRABNET_GUID;
+        }
+        else
+        {
+            serverCell->setAuthority(writeActorList.guid);
+        }
 
         mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_AUTHORITY);
         actorPacket->setActorList(&writeActorList);

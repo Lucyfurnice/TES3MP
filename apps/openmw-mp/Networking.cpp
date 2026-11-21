@@ -579,6 +579,56 @@ void Networking::setActorSyncCallback(std::function<void(unsigned char, const Ba
     actorSyncCallback = std::move(callback);
 }
 
+bool Networking::getAuthoritativeServer() const
+{
+    return authoritativeServer;
+}
+
+void Networking::setAuthoritativeServer(bool state)
+{
+    authoritativeServer = state;
+}
+
+void Networking::setPlayerAttackCallback(std::function<bool(Player&, Attack&)> callback)
+{
+    playerAttackCallback = std::move(callback);
+}
+
+void Networking::setPlayerCastCallback(std::function<bool(Player&, Cast&)> callback)
+{
+    playerCastCallback = std::move(callback);
+}
+
+void Networking::setObjectActionCallback(std::function<bool(unsigned char, Player&, BaseObjectList&)> callback)
+{
+    objectActionCallback = std::move(callback);
+}
+
+void Networking::setPlayerPositionCallback(std::function<bool(Player&)> callback)
+{
+    playerPositionCallback = std::move(callback);
+}
+
+bool Networking::notifyPlayerAttack(Player& player)
+{
+    return !playerAttackCallback || playerAttackCallback(player, player.attack);
+}
+
+bool Networking::notifyPlayerCast(Player& player)
+{
+    return !playerCastCallback || playerCastCallback(player, player.cast);
+}
+
+bool Networking::notifyObjectAction(unsigned char packetId, Player& player, BaseObjectList& objectList)
+{
+    return !objectActionCallback || objectActionCallback(packetId, player, objectList);
+}
+
+bool Networking::notifyPlayerPosition(Player& player)
+{
+    return !playerPositionCallback || playerPositionCallback(player);
+}
+
 int Networking::mainLoop()
 {
 #ifndef _WIN32

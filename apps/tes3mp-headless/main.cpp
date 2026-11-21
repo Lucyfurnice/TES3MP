@@ -61,6 +61,8 @@ namespace
             "Exterior cell residency radius around each player (default 1 = 3x3 neighborhood)");
         add("cell-grace-period", bpo::value<double>()->default_value(20.0),
             "Seconds before empty unpinned cells unload (default 20.0)");
+        add("authoritative", bpo::value<bool>()->default_value(true),
+            "Enable authoritative server NPC AI, combat, and object simulation (default true)");
         add("random-seed", bpo::value<unsigned int>()->default_value(0),
             "RNG seed (0 = time-based/default)");
         add("script-blacklist-warnings", bpo::value<int>()->default_value(0),
@@ -127,6 +129,7 @@ namespace
         config.mMaxTicks = variables["max-ticks"].as<uint64_t>();
         config.mCellRadius = std::max(0, variables["cell-radius"].as<int>());
         config.mCellGracePeriod = std::max(0.0, variables["cell-grace-period"].as<double>());
+        config.mAuthoritative = variables["authoritative"].as<bool>();
         config.mRandomSeed = variables["random-seed"].as<unsigned int>();
         config.mWarningsMode = variables["script-blacklist-warnings"].as<int>();
 

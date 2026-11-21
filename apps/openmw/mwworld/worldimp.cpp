@@ -1320,9 +1320,23 @@ namespace MWWorld
             && !(ptr.getClass().isPersistent(ptr) && ptr.getClass().getCreatureStats(ptr).isDeathAnimationFinished());
         if (force || !ptr.getClass().isActor() || (!isFlying(ptr) && !swims && isActorCollisionEnabled(ptr)))
         {
+#ifdef TES3MP_HEADLESS
+            const float beforeTraceZ = pos.z();
+#endif
             float height = static_cast<float>(ESM::getCellSize(ptr.getCell()->getCell()->getWorldSpace()));
             osg::Vec3f traced = mPhysics->traceDown(ptr, pos, height);
             pos.z() = std::min(pos.z(), traced.z());
+#ifdef TES3MP_HEADLESS
+            // If traceDown found no solid ground beneath an exterior actor during initialization,
+            // clamp to terrain height and clear accumulated fall height instead of letting them fall endlessly.
+            if (ptr.getClass().isActor() && ptr.getCell()->isExterior() && !isFlying(ptr) && !swims)
+            {
+                const bool missedGround = std::abs(traced.z() - beforeTraceZ) < 0.01f;
+                if (missedGround || pos.z() < terrainHeight - 5.f)
+                    pos.z() = terrainHeight + 2.f;
+                ptr.getClass().getCreatureStats(ptr).land(false);
+            }
+#endif
         }
 
         moveObject(ptr, ptr.getCell(), pos);
@@ -1674,8 +1688,10 @@ namespace MWWorld
 
         if (mWorldScene->hasCellLoaded())
         {
+#ifndef TES3MP_HEADLESS
             mNavigator->wait(DetourNavigator::WaitConditionType::requiredTilesPresent,
                 MWBase::Environment::get().getWindowManager()->getLoadingScreen());
+#endif
             mWorldScene->resetCellLoaded();
         }
     }

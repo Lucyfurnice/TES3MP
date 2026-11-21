@@ -15,6 +15,9 @@ namespace mwmp
 
         void Do(ActorPacket &packet, Player &player, BaseActorList &actorList) override
         {
+            if (Networking::get().getAuthoritativeServer())
+                return;
+
             // Send only to players who have the cell loaded
             Cell *serverCell = CellController::get()->getCell(&actorList.cell);
 

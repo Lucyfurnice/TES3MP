@@ -794,24 +794,39 @@ namespace MWRender
 
     float RenderingManager::getTerrainHeightAt(const osg::Vec3f& pos, ESM::RefId worldspace)
     {
-        // Compute directly from ESM::Land so exterior spawn/ground snapping works without Terrain::World.
+        // Compute from LandManager (decoded ESM::Land DATA_VHGT) with bilinear interpolation,
+        // matching btHeightfieldTerrainShape in MWPhysics without requiring Terrain::World.
         ESM::ExteriorCellLocation cellPos = ESM::positionToExteriorCellLocation(pos.x(), pos.y(), worldspace);
-        const MWBase::World* world = MWBase::Environment::get().getWorld();
-        if (!world)
-            return 0.f;
-        const ESM::Land* land = world->getStore().get<ESM::Land>().search(cellPos.mX, cellPos.mY);
-        if (!land)
-            return 0.f;
-        const ESM::Land::LandData* data = land->getLandData(ESM::Land::DATA_VHGT);
+        osg::ref_ptr<const ESMTerrain::LandObject> land = getLandManager()->getLand(cellPos);
+        const ESM::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : nullptr;
         if (!data)
-            return 0.f;
-        constexpr int landSize = ESM::Land::LAND_SIZE;
-        constexpr float cellSize = ESM::Land::REAL_SIZE;
-        float relX = (pos.x() - cellPos.mX * cellSize) / cellSize * (landSize - 1);
-        float relY = (pos.y() - cellPos.mY * cellSize) / cellSize * (landSize - 1);
-        int x = std::clamp(static_cast<int>(relX), 0, landSize - 1);
-        int y = std::clamp(static_cast<int>(relY), 0, landSize - 1);
-        return data->mHeights[y * landSize + x];
+            return static_cast<float>(ESM::Land::DEFAULT_HEIGHT);
+
+        const int landSize = data->getLandSize();
+        const float cellSize = static_cast<float>(ESM::getCellSize(worldspace));
+        if (landSize < 2 || cellSize <= 0.f)
+            return static_cast<float>(ESM::Land::DEFAULT_HEIGHT);
+
+        const float relX = std::clamp((pos.x() - cellPos.mX * cellSize) / cellSize * (landSize - 1), 0.f,
+            static_cast<float>(landSize - 1));
+        const float relY = std::clamp((pos.y() - cellPos.mY * cellSize) / cellSize * (landSize - 1), 0.f,
+            static_cast<float>(landSize - 1));
+
+        const int x0 = std::clamp(static_cast<int>(std::floor(relX)), 0, landSize - 1);
+        const int y0 = std::clamp(static_cast<int>(std::floor(relY)), 0, landSize - 1);
+        const int x1 = std::min(x0 + 1, landSize - 1);
+        const int y1 = std::min(y0 + 1, landSize - 1);
+        const float fx = relX - static_cast<float>(x0);
+        const float fy = relY - static_cast<float>(y0);
+
+        const auto& heights = data->getHeights();
+        const float h00 = heights[y0 * landSize + x0];
+        const float h10 = heights[y0 * landSize + x1];
+        const float h01 = heights[y1 * landSize + x0];
+        const float h11 = heights[y1 * landSize + x1];
+        const float h0 = h00 + (h10 - h00) * fx;
+        const float h1 = h01 + (h11 - h01) * fx;
+        return h0 + (h1 - h0) * fy;
     }
 
     void RenderingManager::overrideFieldOfView(float val)

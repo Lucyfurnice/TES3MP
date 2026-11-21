@@ -93,6 +93,7 @@ namespace TES3MPHeadless
         ToUTF8::FromType mEncoding = ToUTF8::WINDOWS_1252;
         uint16_t mPort = 25565;
         bool mHasPortOverride = false;
+        bool mAuthoritative = true;
         double mTickRate = 60.0;
         uint64_t mMaxTicks = 0; // 0 = run indefinitely until signal/quit
         int mCellRadius = 1; // 1 = 3x3 exterior cell neighborhood per player
@@ -132,7 +133,7 @@ namespace TES3MPHeadless
         void pollNetwork(unsigned int tickNumber);
 
         /// Hook invoked after each simulation step for outbound RakNet state replication.
-        void broadcastNetworkState(unsigned int tickNumber);
+        void broadcastNetworkState(unsigned int tickNumber, float dt);
 
         Files::ConfigurationManager& mCfgMgr;
         HeadlessConfig mConfig;

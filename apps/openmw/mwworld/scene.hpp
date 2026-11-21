@@ -125,10 +125,35 @@ namespace MWWorld
         osg::Vec2i mCurrentGridCenter;
 
 #ifdef TES3MP_HEADLESS
+        struct CellResidencyKey
+        {
+            bool mIsExterior = false;
+            int mX = 0;
+            int mY = 0;
+            std::string mName;
+
+            bool operator==(const CellResidencyKey&) const = default;
+            bool operator<(const CellResidencyKey& rhs) const
+            {
+                if (mIsExterior != rhs.mIsExterior)
+                    return mIsExterior < rhs.mIsExterior;
+                if (mIsExterior)
+                {
+                    if (mX != rhs.mX)
+                        return mX < rhs.mX;
+                    return mY < rhs.mY;
+                }
+                return mName < rhs.mName;
+            }
+        };
+
         int mResidencyRadius = 1;
         double mResidencyGracePeriod = 20.0;
         std::unordered_map<CellStore*, double> mEvictionTimers;
         CellStoreCollection mPinnedCells;
+        std::vector<CellResidencyKey> mLastOccupiedCellKeys;
+        const CellStore* mLastFallbackCell = nullptr;
+        bool mResidencyDirty = true;
 #endif
 
         // Load and unload cells as necessary to create a cell grid with "X" and "Y" in the center

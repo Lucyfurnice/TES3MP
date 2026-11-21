@@ -31,9 +31,9 @@ bool ObjectProcessor::Process(RakNet::Packet &packet, BaseObjectList &objectList
             if (!processor.second->avoidReading)
                 myPacket->Read();
 
-            if (objectList.isValid)
+            if (objectList.isValid && (!Networking::getPtr() || Networking::getPtr()->notifyObjectAction(packet.data[0], *player, objectList)))
                 processor.second->Do(*myPacket, *player, objectList);
-            else
+            else if (!objectList.isValid)
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "Received %s that failed integrity check and was ignored!", processor.second->strPacketID.c_str());
             
             return true;

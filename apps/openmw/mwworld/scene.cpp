@@ -448,6 +448,7 @@ namespace MWWorld
 #ifdef TES3MP_HEADLESS
         mEvictionTimers.erase(cell);
         mPinnedCells.erase(cell);
+        mResidencyDirty = true;
 #endif
         // Clean up any effects that may have been spawned while unloading all cells
         if (mActiveCells.empty())
@@ -615,6 +616,9 @@ namespace MWWorld
 #ifdef TES3MP_HEADLESS
         mEvictionTimers.clear();
         mPinnedCells.clear();
+        mLastOccupiedCellKeys.clear();
+        mLastFallbackCell = nullptr;
+        mResidencyDirty = true;
 #endif
     }
 
@@ -1520,6 +1524,7 @@ namespace MWWorld
     {
         mResidencyRadius = std::max(0, exteriorRadius);
         mResidencyGracePeriod = std::max(0.0, gracePeriodSeconds);
+        mResidencyDirty = true;
     }
 
     void Scene::setCellPinned(std::string_view cellDescription, bool pinned)
@@ -1550,12 +1555,14 @@ namespace MWWorld
         {
             mPinnedCells.insert(target);
             mEvictionTimers.erase(target);
+            mResidencyDirty = true;
             Log(Debug::Info) << "Pinned cell for permanent headless simulation: "
                              << target->getCell()->getDescription();
         }
         else
         {
             mPinnedCells.erase(target);
+            mResidencyDirty = true;
             Log(Debug::Info) << "Unpinned cell from permanent headless simulation: "
                              << target->getCell()->getDescription();
         }
@@ -1568,6 +1575,29 @@ namespace MWWorld
 
     void Scene::syncCellResidency(const std::vector<ESM::Cell>& occupiedCells, float dt)
     {
+        std::vector<CellResidencyKey> currentKeys;
+        currentKeys.reserve(occupiedCells.size());
+        for (const ESM::Cell& cell : occupiedCells)
+        {
+            if (cell.isExterior())
+                currentKeys.push_back(CellResidencyKey{ true, cell.mData.mX, cell.mData.mY, {} });
+            else if (!cell.mName.empty())
+                currentKeys.push_back(CellResidencyKey{ false, 0, 0, cell.mName });
+        }
+        std::sort(currentKeys.begin(), currentKeys.end());
+        currentKeys.erase(std::unique(currentKeys.begin(), currentKeys.end()), currentKeys.end());
+
+        const CellStore* fallbackCell = currentKeys.empty() ? mCurrentCell : nullptr;
+        if (!mResidencyDirty && mEvictionTimers.empty() && fallbackCell == mLastFallbackCell
+            && currentKeys == mLastOccupiedCellKeys)
+        {
+            return;
+        }
+
+        mLastOccupiedCellKeys = std::move(currentKeys);
+        mLastFallbackCell = fallbackCell;
+        mResidencyDirty = false;
+
         CellStoreCollection targetCells;
 
         auto addExteriorNeighborhood = [&](int centerX, int centerY, ESM::RefId worldspace) {
@@ -1578,15 +1608,15 @@ namespace MWWorld
             });
         };
 
-        for (const ESM::Cell& cell : occupiedCells)
+        for (const CellResidencyKey& key : mLastOccupiedCellKeys)
         {
-            if (cell.isExterior())
+            if (key.mIsExterior)
             {
-                addExteriorNeighborhood(cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId);
+                addExteriorNeighborhood(key.mX, key.mY, ESM::Cell::sDefaultWorldspaceId);
             }
-            else if (!cell.mName.empty())
+            else
             {
-                if (CellStore* interior = mWorld.getWorldModel().findInterior(cell.mName, true))
+                if (CellStore* interior = mWorld.getWorldModel().findInterior(key.mName, true))
                     targetCells.insert(interior);
             }
         }
