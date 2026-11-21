@@ -11,6 +11,9 @@
 #include <components/vfs/pathutil.hpp>
 
 #include "../mwbase/world.hpp"
+#ifdef TES3MP_HEADLESS
+#include "../mwbase/mechanicsmanager.hpp"
+#endif
 
 #include "contentloader.hpp"
 #include "esmstore.hpp"
@@ -133,6 +136,16 @@ namespace MWWorld
         float mSpellPreloadTimer;
 
         std::map<MWWorld::Ptr, MWWorld::DoorState> mDoorStates;
+
+#ifdef TES3MP_HEADLESS
+        std::filesystem::path mNavMeshCacheDir;
+        std::vector<MWBase::MechanicsManager::SimulationObserver> mNavigatorObservers;
+        std::size_t mNavigatorObserverCursor = 0;
+        ESM::RefId mLastNavWorldspace;
+        osg::Vec2i mLastNavGridCenter;
+        bool mLastNavIsExterior = false;
+        bool mHasLastNavBounds = false;
+#endif
         ///< only holds doors that are currently moving. 1 = opening, 2 = closing
 
         uint32_t mRandomSeed{};
@@ -191,6 +204,13 @@ namespace MWWorld
     public:
         WorldModel& getWorldModel() { return mWorldModel; }
         Scene& getWorldScene() { return *mWorldScene; }
+#ifdef TES3MP_HEADLESS
+        void setNavMeshCacheDir(std::filesystem::path dir) { mNavMeshCacheDir = std::move(dir); }
+        void setNavigatorObservers(std::vector<MWBase::MechanicsManager::SimulationObserver> observers)
+        {
+            mNavigatorObservers = std::move(observers);
+        }
+#endif
 
         // FIXME
         void addContainerScripts(const Ptr& reference, CellStore* cell) override;

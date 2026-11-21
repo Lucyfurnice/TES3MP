@@ -308,6 +308,21 @@ namespace MWMechanics
         mObjects.dropObjects(cellStore);
     }
 
+#ifdef TES3MP_HEADLESS
+    void MechanicsManager::setSimulationObservers(
+        std::vector<SimulationObserver> observers, float exteriorActiveRadius)
+    {
+        std::vector<Actors::SimulationObserver> actorObservers;
+        actorObservers.reserve(observers.size());
+        for (const SimulationObserver& obs : observers)
+        {
+            actorObservers.push_back(
+                Actors::SimulationObserver{ obs.mPosition, obs.mWorldspace, obs.mIsExterior, obs.mCell });
+        }
+        mActors.setSimulationObservers(std::move(actorObservers), exteriorActiveRadius);
+    }
+#endif
+
     void MechanicsManager::update(float duration, bool paused)
     {
         // Note: we should do it here since game mechanics and world updates use these values

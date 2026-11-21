@@ -370,8 +370,12 @@ namespace MWWorld
             mChangeCellGridRequest.reset();
         }
 
+#ifndef TES3MP_HEADLESS
         mPreloader->updateCache(mRendering.getReferenceTime());
         preloadCells(duration);
+#else
+        (void)duration;
+#endif
     }
 
     void Scene::unloadCell(CellStore* cell, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
@@ -728,11 +732,13 @@ namespace MWWorld
         mRendering.enableTerrain(true, playerCellIndex.mWorldspace);
         mRendering.setActiveGrid(newGrid);
 
+#ifndef TES3MP_HEADLESS
         mPreloader->setTerrain(mRendering.getTerrain());
         if (mRendering.pagingUnlockCache())
             mPreloader->abortTerrainPreloadExcept(nullptr);
         if (!mPreloader->isTerrainLoaded(PositionCellGrid{ pos, newGrid }, mRendering.getReferenceTime()))
             preloadTerrain(pos, playerCellIndex.mWorldspace, true);
+#endif
         mPagedRefs.clear();
         mRendering.getPagedRefnums(newGrid, mPagedRefs);
 
@@ -1686,7 +1692,6 @@ namespace MWWorld
                       (esmCell.getGridY() + 0.5f) * ESM::getCellSize(esmCell.getWorldSpace()), 0.f)
                 : osg::Vec3f(0.f, 0.f, 0.f);
 
-            mPreloader->setTerrain(mRendering.getTerrain());
             loadCell(*cell, nullptr, false, centerPos, navigatorUpdateGuard.get());
         }
 

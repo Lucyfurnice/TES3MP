@@ -609,6 +609,11 @@ void Networking::setPlayerPositionCallback(std::function<bool(Player&)> callback
     playerPositionCallback = std::move(callback);
 }
 
+void Networking::setPlayerCellChangeCallback(std::function<void(Player&)> callback)
+{
+    playerCellChangeCallback = std::move(callback);
+}
+
 bool Networking::notifyPlayerAttack(Player& player)
 {
     return !playerAttackCallback || playerAttackCallback(player, player.attack);
@@ -627,6 +632,12 @@ bool Networking::notifyObjectAction(unsigned char packetId, Player& player, Base
 bool Networking::notifyPlayerPosition(Player& player)
 {
     return !playerPositionCallback || playerPositionCallback(player);
+}
+
+void Networking::notifyPlayerCellChange(Player& player)
+{
+    if (playerCellChangeCallback)
+        playerCellChangeCallback(player);
 }
 
 int Networking::mainLoop()

@@ -9,6 +9,8 @@
 
 #ifndef TES3MP_HEADLESS
 #include <MyGUI_TextIterator.h>
+#else
+#include "../mwmechanics/movement.hpp"
 #endif
 
 #include <LinearMath/btAabbUtil2.h>
@@ -260,7 +262,16 @@ namespace MWWorld
         {
             auto navigatorSettings = DetourNavigator::makeSettingsFromSettingsManager(maxRecastLogLevel);
             navigatorSettings.mRecast.mSwimHeightScale = mSwimHeightScale;
+#ifdef TES3MP_HEADLESS
+            // Use a dedicated cache directory/file inside the server folder (e.g. ./server/data/navmesh) so
+            // tes3mp-headless never contends with openmw.exe for SQLite write locks on My Games\OpenMW\navmesh.db.
+            const std::filesystem::path& navmeshDir = mNavMeshCacheDir.empty() ? mUserDataPath : mNavMeshCacheDir;
+            std::error_code ec;
+            std::filesystem::create_directories(navmeshDir, ec);
+            mNavigator = DetourNavigator::makeNavigator(navigatorSettings, navmeshDir, "tes3mp-headless-navmesh.db");
+#else
             mNavigator = DetourNavigator::makeNavigator(navigatorSettings, mUserDataPath);
+#endif
         }
         else
         {
@@ -1309,6 +1320,16 @@ namespace MWWorld
             return;
         }
 
+#ifdef TES3MP_HEADLESS
+        MWPhysics::Actor* physActor = ptr.getClass().isActor() ? mPhysics->getActor(ptr) : nullptr;
+        if (!force && physActor != nullptr && physActor->hasGroundAdjusted() && ptr.getCell()->isExterior()
+            && mPhysics->isOnGround(ptr)
+            && ptr.getClass().getMovementSettings(ptr).asVec3().length2() == 0.f)
+        {
+            return;
+        }
+#endif
+
         const float terrainHeight = ptr.getCell()->isExterior()
             ? getTerrainHeightAt(pos, ptr.getCell()->getCell()->getWorldSpace())
             : -std::numeric_limits<float>::max();
@@ -1338,6 +1359,11 @@ namespace MWWorld
             }
 #endif
         }
+
+#ifdef TES3MP_HEADLESS
+        if (physActor != nullptr)
+            physActor->setGroundAdjusted(true);
+#endif
 
         moveObject(ptr, ptr.getCell(), pos);
     }
@@ -1491,6 +1517,44 @@ namespace MWWorld
         for (const auto& door : mDoorStates)
             if (const auto object = mPhysics->getObject(door.first))
                 updateNavigatorObject(*object, navigatorUpdateGuard.get());
+
+#ifdef TES3MP_HEADLESS
+        if (!mNavigatorObservers.empty())
+        {
+            const std::size_t idx = (mNavigatorObserverCursor++ / 10) % mNavigatorObservers.size();
+            const auto& obs = mNavigatorObservers[idx];
+            mNavigator->setUpdatesEnabled(true);
+
+            osg::Vec2i gridCenter(0, 0);
+            if (obs.mIsExterior)
+            {
+                const ESM::ExteriorCellLocation loc
+                    = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), obs.mWorldspace);
+                gridCenter = osg::Vec2i(loc.mX, loc.mY);
+            }
+
+            if (!mHasLastNavBounds || mLastNavWorldspace != obs.mWorldspace || mLastNavIsExterior != obs.mIsExterior
+                || (obs.mIsExterior && mLastNavGridCenter != gridCenter))
+            {
+                std::optional<DetourNavigator::CellGridBounds> bounds;
+                if (obs.mIsExterior)
+                {
+                    bounds = DetourNavigator::CellGridBounds{
+                        .mCenter = gridCenter,
+                        .mHalfSize = std::max(0, mWorldScene->getResidencyRadius()),
+                    };
+                }
+                mNavigator->updateBounds(obs.mWorldspace, bounds, obs.mPosition, navigatorUpdateGuard.get());
+                mLastNavWorldspace = obs.mWorldspace;
+                mLastNavGridCenter = gridCenter;
+                mLastNavIsExterior = obs.mIsExterior;
+                mHasLastNavBounds = true;
+            }
+
+            mNavigator->update(obs.mPosition, navigatorUpdateGuard.get());
+            return;
+        }
+#endif
 
         mNavigator->update(getPlayerPtr().getRefData().getPosition().asVec3(), navigatorUpdateGuard.get());
     }

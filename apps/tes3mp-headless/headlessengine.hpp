@@ -94,10 +94,11 @@ namespace TES3MPHeadless
         uint16_t mPort = 25565;
         bool mHasPortOverride = false;
         bool mAuthoritative = true;
+        bool mProfileTicks = false;
         double mTickRate = 60.0;
         uint64_t mMaxTicks = 0; // 0 = run indefinitely until signal/quit
         int mCellRadius = 1; // 1 = 3x3 exterior cell neighborhood per player
-        double mCellGracePeriod = 20.0; // seconds before empty unpinned cells unload
+        double mCellGracePeriod = 5.0; // seconds before empty unpinned cells unload
         int mPreloadThreads = 1;
         unsigned int mRandomSeed = 0;
         int mWarningsMode = 0;
@@ -124,10 +125,24 @@ namespace TES3MPHeadless
         void requestStop();
 
     private:
+        struct TickTimingsMs
+        {
+            double mPollNetwork = 0.0;
+            double mWorldUpdate = 0.0;
+            double mMechanicsUpdate = 0.0;
+            double mLuaUpdate = 0.0;
+            double mBroadcastState = 0.0;
+
+            double total() const
+            {
+                return mPollNetwork + mWorldUpdate + mMechanicsUpdate + mLuaUpdate + mBroadcastState;
+            }
+        };
+
         void initManagers();
         void loadContentAndWorld();
         void executeLocalScripts();
-        bool stepSimulation(unsigned int tickNumber, float dt);
+        bool stepSimulation(unsigned int tickNumber, float dt, TickTimingsMs& timings);
 
         /// Hook invoked before each simulation step for inbound RakNet packet consumption.
         void pollNetwork(unsigned int tickNumber);

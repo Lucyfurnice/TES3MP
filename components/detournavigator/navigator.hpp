@@ -203,6 +203,11 @@ namespace DetourNavigator
 
     std::unique_ptr<Navigator> makeNavigator(const Settings& settings, const std::filesystem::path& userDataPath);
 
+    // Same as above, but stores the navmesh disk cache in a custom file name inside userDataPath (e.g. so a
+    // dedicated server process never contends with a client for SQLite write locks on navmesh.db).
+    std::unique_ptr<Navigator> makeNavigator(
+        const Settings& settings, const std::filesystem::path& userDataPath, const std::string& dbFileName);
+
     std::unique_ptr<Navigator> makeNavigatorStub();
 }
 

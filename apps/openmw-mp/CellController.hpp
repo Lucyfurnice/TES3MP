@@ -33,6 +33,7 @@ public:
     void deletePlayer(Player *player);
 
     Cell *getCell(ESM::Cell *esmCell);
+    Cell *findCell(const ESM::Cell *esmCell) const;
     Cell *getCellByXY(int x, int y);
     Cell *getCellByName(std::string cellName);
 

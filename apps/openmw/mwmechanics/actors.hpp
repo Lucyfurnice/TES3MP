@@ -9,6 +9,11 @@
 
 #include "actor.hpp"
 
+#ifdef TES3MP_HEADLESS
+#include <components/esm/refid.hpp>
+#include <osg/Vec3f>
+#endif
+
 namespace ESM
 {
     class ESMReader;
@@ -73,6 +78,18 @@ namespace MWMechanics
 
         void dropActors(const MWWorld::CellStore* cellStore, const MWWorld::Ptr& ignore);
         ///< Deregister all actors (except for \a ignore) in the given cell.
+
+#ifdef TES3MP_HEADLESS
+        struct SimulationObserver
+        {
+            osg::Vec3f mPosition;
+            ESM::RefId mWorldspace;
+            bool mIsExterior = true;
+            const MWWorld::CellStore* mCell = nullptr;
+        };
+
+        void setSimulationObservers(std::vector<SimulationObserver> observers, float exteriorActiveRadius);
+#endif
 
         void update(float duration, bool paused);
         ///< Update actor stats and store desired velocity vectors in \a movement
@@ -178,6 +195,13 @@ namespace MWMechanics
         float mTimerUpdateHello = 0;
         float mSneakTimer = 0; // Times update of sneak icon
         float mSneakSkillTimer = 0; // Times sneak skill progress from "avoid notice"
+#ifdef TES3MP_HEADLESS
+        std::vector<SimulationObserver> mSimulationObservers;
+        float mExteriorSimulationRadius = 6144.0f;
+
+        bool isWithinActiveSimulationRange(
+            const MWWorld::Ptr& ptr, const osg::Vec3f& fallbackPos, float fallbackRange) const;
+#endif
 
         void updateVisibility(const MWWorld::Ptr& ptr, CharacterController& ctrl) const;
 

@@ -77,11 +77,13 @@ namespace  mwmp
         void setPlayerCastCallback(std::function<bool(Player&, Cast&)> callback);
         void setObjectActionCallback(std::function<bool(unsigned char, Player&, BaseObjectList&)> callback);
         void setPlayerPositionCallback(std::function<bool(Player&)> callback);
+        void setPlayerCellChangeCallback(std::function<void(Player&)> callback);
 
         bool notifyPlayerAttack(Player& player);
         bool notifyPlayerCast(Player& player);
         bool notifyObjectAction(unsigned char packetId, Player& player, BaseObjectList& objectList);
         bool notifyPlayerPosition(Player& player);
+        void notifyPlayerCellChange(Player& player);
 
         MasterClient *getMasterClient();
         void InitQuery(std::string queryAddr, unsigned short queryPort);
@@ -124,6 +126,7 @@ namespace  mwmp
         std::function<bool(Player&, Cast&)> playerCastCallback;
         std::function<bool(unsigned char, Player&, BaseObjectList&)> objectActionCallback;
         std::function<bool(Player&)> playerPositionCallback;
+        std::function<void(Player&)> playerCellChangeCallback;
     };
 }
 

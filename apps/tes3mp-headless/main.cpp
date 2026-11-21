@@ -59,10 +59,14 @@ namespace
             "Exit cleanly after N simulation ticks (0 = run until signal)");
         add("cell-radius", bpo::value<int>()->default_value(1),
             "Exterior cell residency radius around each player (default 1 = 3x3 neighborhood)");
-        add("cell-grace-period", bpo::value<double>()->default_value(20.0),
-            "Seconds before empty unpinned cells unload (default 20.0)");
+        add("exterior-cell-radius", bpo::value<int>(),
+            "Override exterior cell residency radius around each player (0 = active cell only, 1 = 3x3)");
+        add("cell-grace-period", bpo::value<double>()->default_value(5.0),
+            "Seconds before empty unpinned cells unload (default 5.0)");
         add("authoritative", bpo::value<bool>()->default_value(true),
             "Enable authoritative server NPC AI, combat, and object simulation (default true)");
+        add("profile-ticks", bpo::bool_switch()->default_value(false),
+            "Log per-phase tick timing breakdown (pollNetwork, World, Mechanics, Lua, broadcast)");
         add("random-seed", bpo::value<unsigned int>()->default_value(0),
             "RNG seed (0 = time-based/default)");
         add("script-blacklist-warnings", bpo::value<int>()->default_value(0),
@@ -128,8 +132,11 @@ namespace
         config.mTickRate = variables["tick-rate"].as<double>();
         config.mMaxTicks = variables["max-ticks"].as<uint64_t>();
         config.mCellRadius = std::max(0, variables["cell-radius"].as<int>());
+        if (variables.count("exterior-cell-radius"))
+            config.mCellRadius = std::max(0, variables["exterior-cell-radius"].as<int>());
         config.mCellGracePeriod = std::max(0.0, variables["cell-grace-period"].as<double>());
         config.mAuthoritative = variables["authoritative"].as<bool>();
+        config.mProfileTicks = variables["profile-ticks"].as<bool>();
         config.mRandomSeed = variables["random-seed"].as<unsigned int>();
         config.mWarningsMode = variables["script-blacklist-warnings"].as<int>();
 

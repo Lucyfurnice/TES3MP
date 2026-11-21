@@ -15,6 +15,7 @@
 
 #include <apps/openmw/mwmechanics/combat.hpp>
 #include <apps/openmw/mwmechanics/creaturestats.hpp>
+#include <apps/openmw/mwmechanics/movement.hpp>
 #include <apps/openmw/mwmechanics/spellcasting.hpp>
 #include <apps/openmw/mwmechanics/weapontype.hpp>
 #include <apps/openmw/mwphysics/collisiontype.hpp>
@@ -140,7 +141,13 @@ namespace TES3MPHeadless
 
             const ESM::Position& pos = ptr.getRefData().getPosition();
             actor.position = pos;
-            actor.direction = pos;
+            const MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
+            actor.direction.pos[0] = movement.mPosition[0];
+            actor.direction.pos[1] = movement.mPosition[1];
+            actor.direction.pos[2] = movement.mPosition[2];
+            actor.direction.rot[0] = movement.mRotation[0];
+            actor.direction.rot[1] = movement.mRotation[1];
+            actor.direction.rot[2] = movement.mRotation[2];
             actor.hasPositionData = includePos;
 
             const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
@@ -180,42 +187,95 @@ namespace TES3MPHeadless
         shutdown();
     }
 
+    namespace
+    {
+        std::filesystem::path resolveConfigPathImpl(
+            Files::ConfigurationManager& cfgMgr, const std::filesystem::path& candidate)
+        {
+            if (candidate.empty())
+                return {};
+            if (std::filesystem::exists(candidate))
+                return candidate;
+            if (candidate.is_relative())
+            {
+                const std::filesystem::path inLocal = cfgMgr.getLocalPath() / candidate;
+                if (std::filesystem::exists(inLocal))
+                    return inLocal;
+                const std::filesystem::path inGlobal = cfgMgr.getGlobalPath() / candidate;
+                if (std::filesystem::exists(inGlobal))
+                    return inGlobal;
+            }
+            return {};
+        }
+
+        std::filesystem::path resolvePluginHomeImpl(
+            Files::ConfigurationManager& cfgMgr, const std::string& rawHome, const std::filesystem::path& cfgDir)
+        {
+            if (rawHome.empty())
+                return {};
+            const std::filesystem::path rawPath(rawHome);
+            if (std::filesystem::exists(rawPath))
+                return rawPath;
+            if (!cfgDir.empty())
+            {
+                const std::filesystem::path nearCfg = cfgDir / rawPath;
+                if (std::filesystem::exists(nearCfg))
+                    return nearCfg;
+            }
+            const std::filesystem::path nearLocal = cfgMgr.getLocalPath() / rawPath;
+            if (std::filesystem::exists(nearLocal))
+                return nearLocal;
+            return rawPath;
+        }
+    }
+
+    std::filesystem::path HeadlessServer::resolveServerHome(
+        Files::ConfigurationManager& cfgMgr, const std::filesystem::path& serverCfgPath)
+    {
+        Settings::CategorySettingValueMap serverSettings;
+        Settings::SettingsFileParser parser;
+
+        std::filesystem::path defaultCfg = resolveConfigPathImpl(
+            cfgMgr, serverCfgPath.empty() ? std::filesystem::path("tes3mp-server-default.cfg") : serverCfgPath);
+        if (defaultCfg.empty())
+            defaultCfg = resolveConfigPathImpl(cfgMgr, "tes3mp-server-default.cfg");
+
+        std::filesystem::path cfgDir;
+        try
+        {
+            if (!defaultCfg.empty())
+            {
+                parser.loadSettingsFile(defaultCfg, serverSettings, false, true);
+                cfgDir = defaultCfg.parent_path();
+                const std::filesystem::path siblingOverride = cfgDir / "tes3mp-server.cfg";
+                if (siblingOverride != defaultCfg && std::filesystem::exists(siblingOverride))
+                    parser.loadSettingsFile(siblingOverride, serverSettings, false, true);
+            }
+            const std::filesystem::path userCfg = cfgMgr.getUserConfigPath() / "tes3mp-server.cfg";
+            if (std::filesystem::exists(userCfg) && userCfg != defaultCfg)
+                parser.loadSettingsFile(userCfg, serverSettings, false, true);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to read server config while resolving server home: " << e.what();
+        }
+
+        const std::string rawPluginHome = getCfgString(serverSettings, "Plugins", "home", "./server");
+        std::filesystem::path home = resolvePluginHomeImpl(cfgMgr, rawPluginHome, cfgDir);
+        if (home.empty())
+            home = cfgMgr.getLocalPath() / "server";
+        return home;
+    }
+
     std::filesystem::path HeadlessServer::resolveConfigPath(const std::filesystem::path& candidate) const
     {
-        if (candidate.empty())
-            return {};
-        if (std::filesystem::exists(candidate))
-            return candidate;
-        if (candidate.is_relative())
-        {
-            const std::filesystem::path inLocal = mCfgMgr.getLocalPath() / candidate;
-            if (std::filesystem::exists(inLocal))
-                return inLocal;
-            const std::filesystem::path inGlobal = mCfgMgr.getGlobalPath() / candidate;
-            if (std::filesystem::exists(inGlobal))
-                return inGlobal;
-        }
-        return {};
+        return resolveConfigPathImpl(mCfgMgr, candidate);
     }
 
     std::filesystem::path HeadlessServer::resolvePluginHome(
         const std::string& rawHome, const std::filesystem::path& cfgDir) const
     {
-        if (rawHome.empty())
-            return {};
-        const std::filesystem::path rawPath(rawHome);
-        if (std::filesystem::exists(rawPath))
-            return rawPath;
-        if (!cfgDir.empty())
-        {
-            const std::filesystem::path nearCfg = cfgDir / rawPath;
-            if (std::filesystem::exists(nearCfg))
-                return nearCfg;
-        }
-        const std::filesystem::path nearLocal = mCfgMgr.getLocalPath() / rawPath;
-        if (std::filesystem::exists(nearLocal))
-            return nearLocal;
-        return rawPath;
+        return resolvePluginHomeImpl(mCfgMgr, rawHome, cfgDir);
     }
 
     void HeadlessServer::init()
@@ -361,6 +421,8 @@ namespace TES3MPHeadless
         });
         mNetworking->setPlayerPositionCallback(
             [this](::Player& player) { return validatePlayerPosition(player); });
+        mNetworking->setPlayerCellChangeCallback(
+            [this](::Player& player) { handlePlayerCellChange(player); });
         mNetworking->setPlayerAttackCallback(
             [this](::Player& player, mwmp::Attack& attack) { return handlePlayerAttack(player, attack); });
         mNetworking->setPlayerCastCallback(
@@ -427,6 +489,7 @@ namespace TES3MPHeadless
         {
             mNetworking->setActorSyncCallback(nullptr);
             mNetworking->setPlayerPositionCallback(nullptr);
+            mNetworking->setPlayerCellChangeCallback(nullptr);
             mNetworking->setPlayerAttackCallback(nullptr);
             mNetworking->setPlayerCastCallback(nullptr);
             mNetworking->setObjectActionCallback(nullptr);
@@ -509,6 +572,41 @@ namespace TES3MPHeadless
         return false;
     }
 
+    void HeadlessServer::collectConnectedObservers(std::vector<ConnectedObserver>& outObservers) const
+    {
+        outObservers.clear();
+        TPlayers* players = Players::getPlayers();
+        if (!players)
+            return;
+
+        for (const auto& [guid, player] : *players)
+        {
+            if (!player || player->getLoadState() != Player::POSTLOADED)
+                continue;
+            // Never treat the default (0, 0) cell of a freshly connected player as real until the client
+            // confirms its cell via ID_PLAYER_CELL_CHANGE.
+            if (mPlayersWithKnownCell.find(player->getId()) == mPlayersWithKnownCell.end())
+                continue;
+
+            ConnectedObserver obs;
+            obs.mPlayer = player;
+            obs.mPosition = player->position.asVec3();
+            obs.mIsExterior = player->cell.isExterior();
+            obs.mCell = resolveCellStore(player->cell);
+            outObservers.push_back(obs);
+        }
+    }
+
+    void HeadlessServer::handlePlayerCellChange(::Player& player)
+    {
+        mPlayersWithKnownCell.insert(player.getId());
+        auto& state = mPlayerValidation[player.getId()];
+        state.mLastCell = player.cell;
+        state.mLastPos = player.position.asVec3();
+        state.mLastUpdate = std::chrono::steady_clock::now();
+        state.mInitialized = true;
+    }
+
     bool HeadlessServer::validatePlayerPosition(::Player& player)
     {
         if (!mConfig.mAuthority.authoritativeMode || !mConfig.mAuthority.validatePlayerMovement)
@@ -524,7 +622,21 @@ namespace TES3MPHeadless
                     ? (state.mLastCell.mData.mX == player.cell.mData.mX && state.mLastCell.mData.mY == player.cell.mData.mY)
                     : (state.mLastCell.mName == player.cell.mName));
 
-        if (!state.mInitialized || player.exchangeFullInfo || !sameCell)
+        // Detect out-of-order ID_PLAYER_POSITION arriving just before ID_PLAYER_CELL_CHANGE across doors/borders.
+        bool pendingCellTransition = false;
+        if (player.cell.isExterior())
+        {
+            const ESM::ExteriorCellLocation posCell
+                = ESM::positionToExteriorCellLocation(newPos.x(), newPos.y(), ESM::Cell::sDefaultWorldspaceId);
+            if (posCell.mX != player.cell.mData.mX || posCell.mY != player.cell.mData.mY)
+                pendingCellTransition = true;
+        }
+        else if (state.mInitialized && (newPos - state.mLastPos).length2() > (16384.0f * 16384.0f))
+        {
+            pendingCellTransition = true;
+        }
+
+        if (!state.mInitialized || player.exchangeFullInfo || !sameCell || pendingCellTransition)
         {
             state.mLastCell = player.cell;
             state.mLastPos = newPos;
@@ -871,8 +983,12 @@ namespace TES3MPHeadless
             const unsigned short pid = player->getId();
             activeIds.insert(pid);
 
+            // Don't spawn/move an anchor into the default (0, 0) cell before ID_PLAYER_CELL_CHANGE arrives.
+            if (mPlayersWithKnownCell.find(pid) == mPlayersWithKnownCell.end())
+                continue;
+
             MWWorld::CellStore* targetCell = resolveCellStore(player->cell);
-            if (!targetCell)
+            if (!targetCell || !mWorld.getWorldScene().isCellActive(*targetCell))
                 continue;
 
             auto anchorIt = mPlayerAnchors.find(pid);
@@ -899,6 +1015,15 @@ namespace TES3MPHeadless
                 mWorld.rotateObject(
                     anchor, osg::Vec3f(player->position.rot[0], player->position.rot[1], player->position.rot[2]));
             }
+        }
+
+        for (auto it = mPlayersWithKnownCell.begin(); it != mPlayersWithKnownCell.end();)
+        {
+            if (activeIds.find(*it) == activeIds.end()
+                && (!Players::getPlayers() || !Players::getPlayer(*it)))
+                it = mPlayersWithKnownCell.erase(it);
+            else
+                ++it;
         }
 
         for (auto it = mPlayerAnchors.begin(); it != mPlayerAnchors.end();)
@@ -957,6 +1082,12 @@ namespace TES3MPHeadless
         if (!mConfig.mAuthority.authoritativeMode || !mNetworking)
             return;
 
+        // Pause actor delta broadcasting entirely while no client is connected.
+        std::vector<ConnectedObserver> connected;
+        collectConnectedObservers(connected);
+        if (connected.empty())
+            return;
+
         mwmp::ActorPacketController* actorPackets = mNetworking->getActorPacketController();
         if (!actorPackets)
             return;
@@ -964,6 +1095,8 @@ namespace TES3MPHeadless
         const float posThreshSq = mConfig.mAuthority.actorPosDeltaSq;
         const float rotThresh = mConfig.mAuthority.actorRotDeltaRad;
         const float statThresh = mConfig.mAuthority.actorStatDelta;
+        const float broadcastRadiusSq = mConfig.mAuthority.actorBroadcastRadius * mConfig.mAuthority.actorBroadcastRadius;
+        const std::size_t maxBatch = std::max<std::size_t>(1, mConfig.mAuthority.maxActorsPerBroadcast);
 
         for (MWWorld::CellStore* cellStore : mWorld.getWorldScene().getActiveCells())
         {
@@ -971,6 +1104,38 @@ namespace TES3MPHeadless
                 continue;
 
             ESM::Cell esmCell = cellFromStore(*cellStore);
+            // Legacy CellController state is optional: it only exists if a client sent ID_PLAYER_CELL_STATE.
+            Cell* serverCell = CellController::get()->findCell(&esmCell);
+
+            const bool isExterior = cellStore->isExterior();
+
+            // Candidate recipients for this cell, using live player positions.
+            std::vector<const ConnectedObserver*> candidates;
+            for (const ConnectedObserver& obs : connected)
+            {
+                if (isExterior ? obs.mIsExterior : (obs.mCell == cellStore))
+                    candidates.push_back(&obs);
+            }
+            if (serverCell)
+            {
+                // Also include anyone the legacy CellController knows has this cell loaded.
+                for (const ::Player* pl : serverCell->getPlayers())
+                {
+                    if (!pl)
+                        continue;
+                    for (const ConnectedObserver& obs : connected)
+                    {
+                        if (obs.mPlayer == pl
+                            && std::find(candidates.begin(), candidates.end(), &obs) == candidates.end())
+                            candidates.push_back(&obs);
+                    }
+                }
+            }
+            if (candidates.empty())
+                continue;
+
+            std::vector<bool> recipientInRange(candidates.size(), !isExterior);
+
             mwmp::BaseActorList posBatch;
             mwmp::BaseActorList animBatch;
             mwmp::BaseActorList statsBatch;
@@ -981,9 +1146,24 @@ namespace TES3MPHeadless
                 if (!ptr.getClass().isActor() || !ptr.getRefData().isEnabled() || isPlayerAnchorPtr(ptr))
                     return true;
 
-                const MWWorld::LiveCellRefBase* key = ptr.getBase();
                 const ESM::Position& esmPos = ptr.getRefData().getPosition();
                 const osg::Vec3f pos = esmPos.asVec3();
+                if (isExterior)
+                {
+                    bool inVisibilityRadius = false;
+                    for (std::size_t i = 0; i < candidates.size(); ++i)
+                    {
+                        if ((candidates[i]->mPosition - pos).length2() <= broadcastRadiusSq)
+                        {
+                            inVisibilityRadius = true;
+                            recipientInRange[i] = true;
+                        }
+                    }
+                    if (!inVisibilityRadius)
+                        return true;
+                }
+
+                const MWWorld::LiveCellRefBase* key = ptr.getBase();
                 const osg::Vec3f rot = esmPos.asRotationVec3();
                 const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
                 const unsigned int moveFlags = readMovementFlags(stats);
@@ -1008,15 +1188,21 @@ namespace TES3MPHeadless
                 if (!dead && snap.mDeathBroadcasted)
                     snap.mDeathBroadcasted = false;
 
-                const bool posDirty = (pos - snap.mPos).length2() >= posThreshSq
-                    || std::abs(rot.z() - snap.mRot.z()) >= rotThresh
-                    || std::abs(rot.x() - snap.mRot.x()) >= rotThresh;
-                const bool animDirty
-                    = (moveFlags != snap.mMovementFlags || drawState != snap.mDrawState || flying != snap.mIsFlying);
-                const bool statsDirty = std::abs(health - snap.mHealth) >= statThresh
-                    || std::abs(magicka - snap.mMagicka) >= statThresh
-                    || std::abs(fatigue - snap.mFatigue) >= statThresh
-                    || (dead != snap.mDead);
+                const bool batchCapacityRemaining = posBatch.baseActors.size() < maxBatch
+                    && animBatch.baseActors.size() < maxBatch
+                    && statsBatch.baseActors.size() < maxBatch;
+
+                const bool posDirty = batchCapacityRemaining
+                    && ((pos - snap.mPos).length2() >= posThreshSq
+                        || std::abs(rot.z() - snap.mRot.z()) >= rotThresh
+                        || std::abs(rot.x() - snap.mRot.x()) >= rotThresh);
+                const bool animDirty = batchCapacityRemaining
+                    && (moveFlags != snap.mMovementFlags || drawState != snap.mDrawState || flying != snap.mIsFlying);
+                const bool statsDirty = batchCapacityRemaining
+                    && (std::abs(health - snap.mHealth) >= statThresh
+                        || std::abs(magicka - snap.mMagicka) >= statThresh
+                        || std::abs(fatigue - snap.mFatigue) >= statThresh
+                        || (dead != snap.mDead));
                 const bool deathDirty = (dead && !snap.mDeathBroadcasted);
 
                 if (!posDirty && !animDirty && !statsDirty && !deathDirty)
@@ -1065,29 +1251,33 @@ namespace TES3MPHeadless
                 continue;
             }
 
-            if (mPlayerAnchors.empty())
-                continue;
-
-            Cell* serverCell = CellController::get()->getCell(&esmCell);
-
             const RakNet::RakNetGUID serverGuid = mPeer ? mPeer->GetMyGUID() : RakNet::RakNetGUID();
+
+            std::vector<::Player*> recipients;
+            for (std::size_t i = 0; i < candidates.size(); ++i)
+            {
+                ::Player* pl = candidates[i]->mPlayer;
+                if (recipientInRange[i] && pl && !pl->npc.mName.empty())
+                    recipients.push_back(pl);
+            }
+
+            auto sendToRecipients = [&](unsigned char packetId, mwmp::BaseActorList& batch) {
+                batch.guid = serverGuid;
+                mwmp::ActorPacket* pkt = actorPackets->GetPacket(packetId);
+                for (::Player* pl : recipients)
+                {
+                    pkt->setActorList(&batch);
+                    pkt->Send(pl->guid);
+                }
+            };
 
             auto dispatchActorBatch = [&](unsigned char packetId, mwmp::BaseActorList& batch, bool updateCellStore) {
                 if (batch.baseActors.empty())
                     return;
                 batch.count = static_cast<unsigned int>(batch.baseActors.size());
-                if (serverCell)
-                {
-                    if (updateCellStore)
-                        serverCell->readActorList(packetId, &batch);
-                    if (!serverCell->getPlayers().empty())
-                    {
-                        batch.guid = serverGuid;
-                        mwmp::ActorPacket* pkt = actorPackets->GetPacket(packetId);
-                        pkt->setActorList(&batch);
-                        serverCell->sendToLoaded(pkt, &batch);
-                    }
-                }
+                if (serverCell && updateCellStore)
+                    serverCell->readActorList(packetId, &batch);
+                sendToRecipients(packetId, batch);
             };
 
             dispatchActorBatch(ID_ACTOR_POSITION, posBatch, true);
@@ -1096,15 +1286,12 @@ namespace TES3MPHeadless
             if (!deathBatch.baseActors.empty())
             {
                 deathBatch.count = static_cast<unsigned int>(deathBatch.baseActors.size());
-                if (serverCell && !serverCell->getPlayers().empty())
+                sendToRecipients(ID_ACTOR_DEATH, deathBatch);
+                ::Player* observer = !recipients.empty() ? recipients.front() : candidates.front()->mPlayer;
+                if (observer)
                 {
-                    Player* observer = *serverCell->begin();
-                    deathBatch.guid = serverGuid;
-                    mwmp::ActorPacket* pkt = actorPackets->GetPacket(ID_ACTOR_DEATH);
-                    pkt->setActorList(&deathBatch);
-                    serverCell->sendToLoaded(pkt, &deathBatch);
                     Script::Call<Script::CallbackIdentity("OnActorDeath")>(
-                        observer->getId(), serverCell->getShortDescription().c_str());
+                        observer->getId(), Utils::getCellDescription(esmCell).c_str());
                 }
             }
         }
@@ -1155,9 +1342,35 @@ namespace TES3MPHeadless
 
         for (const auto& [guid, player] : *players)
         {
-            if (player && player->getLoadState() == Player::POSTLOADED)
+            if (player && player->getLoadState() == Player::POSTLOADED
+                && mPlayersWithKnownCell.find(player->getId()) != mPlayersWithKnownCell.end())
                 outCells.push_back(player->cell);
         }
+    }
+
+    void HeadlessServer::collectSimulationObservers(
+        std::vector<MWBase::MechanicsManager::SimulationObserver>& outObservers) const
+    {
+        outObservers.clear();
+        std::vector<ConnectedObserver> connected;
+        collectConnectedObservers(connected);
+        if (connected.empty())
+            return;
+
+        // Use the live ID_PLAYER_POSITION coordinates so AI culling and DetourNavigator tile generation follow
+        // the real player immediately, even before the world anchor catches up with a cell transition.
+        outObservers.reserve(connected.size());
+        for (const ConnectedObserver& obs : connected)
+        {
+            outObservers.push_back(MWBase::MechanicsManager::SimulationObserver{ obs.mPosition,
+                obs.mCell ? obs.mCell->getCell()->getWorldSpace() : ESM::Cell::sDefaultWorldspaceId,
+                obs.mIsExterior, obs.mCell });
+        }
+    }
+
+    float HeadlessServer::getActorSimulationRadius() const
+    {
+        return mConfig.mAuthority.actorSimulationRadius;
     }
 
     uint16_t HeadlessServer::getBoundPort() const
@@ -1167,7 +1380,9 @@ namespace TES3MPHeadless
 
     std::size_t HeadlessServer::getConnectedPlayerCount() const
     {
-        return mPlayerAnchors.size();
+        std::vector<ConnectedObserver> connected;
+        collectConnectedObservers(connected);
+        return connected.size();
     }
 
     bool HeadlessServer::isAuthoritative() const

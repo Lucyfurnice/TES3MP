@@ -244,6 +244,7 @@ namespace MWWorld
 #ifdef TES3MP_HEADLESS
         /// Configure the exterior neighborhood radius (1 = 3x3) and empty-cell eviction grace period.
         void setResidencyConfig(int exteriorRadius, double gracePeriodSeconds);
+        int getResidencyRadius() const { return mResidencyRadius; }
 
         /// Pin or unpin a cell by description (e.g. "-2, -9" or "Balmora, Eight Plates") from server scripts.
         void setCellPinned(std::string_view cellDescription, bool pinned);

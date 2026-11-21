@@ -146,6 +146,11 @@ namespace MWPhysics
 
         void setActive(bool value) { mActive = value; }
 
+#ifdef TES3MP_HEADLESS
+        bool hasGroundAdjusted() const { return mGroundAdjusted; }
+        void setGroundAdjusted(bool adjusted) { mGroundAdjusted = adjusted; }
+#endif
+
         DetourNavigator::CollisionShapeType getCollisionShapeType() const { return mCollisionShapeType; }
 
     private:
@@ -188,6 +193,9 @@ namespace MWPhysics
         bool mInternalCollisionMode;
         bool mExternalCollisionMode;
         bool mActive;
+#ifdef TES3MP_HEADLESS
+        bool mGroundAdjusted = false;
+#endif
 
         PhysicsTaskScheduler* mTaskScheduler;
 

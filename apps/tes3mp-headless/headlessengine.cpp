@@ -40,6 +40,8 @@
 #include <apps/openmw/mwworld/worldimp.hpp>
 
 #include <chrono>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 
@@ -158,6 +160,8 @@ namespace TES3MPHeadless
 
         mWorld = std::make_unique<MWWorld::World>(
             mResourceSystem.get(), 0, mConfig.mStartCell, mCfgMgr.getUserDataPath());
+        mWorld->setNavMeshCacheDir(
+            HeadlessServer::resolveServerHome(mCfgMgr, mConfig.mServerCfgPath) / "data" / "navmesh");
         mEnvironment.setWorld(*mWorld);
         mEnvironment.setWorldModel(mWorld->getWorldModel());
         mEnvironment.setESMStore(mWorld->getStore());
@@ -278,7 +282,7 @@ namespace TES3MPHeadless
             mServer->broadcastNetworkState(dt);
     }
 
-    bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt)
+    bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt, TickTimingsMs& timings)
     {
         const osg::Timer_t tickStart = mTimer->tick();
 
@@ -294,7 +298,11 @@ namespace TES3MPHeadless
 
         try
         {
+            const osg::Timer_t luaSyncStart = mTimer->tick();
             mLuaManager->synchronizedUpdate();
+            timings.mLuaUpdate += mTimer->delta_m(luaSyncStart, mTimer->tick());
+
+            const osg::Timer_t worldStart1 = mTimer->tick();
             mStateManager->update(dt);
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
@@ -315,10 +323,28 @@ namespace TES3MPHeadless
                 const double hours = (static_cast<double>(dt) * mWorld->getTimeManager()->getGameTimeScale()) / 3600.0;
                 mWorld->advanceTime(hours, true);
                 mWorld->rechargeItems(dt, true);
+                timings.mWorldUpdate += mTimer->delta_m(worldStart1, mTimer->tick());
 
+                const osg::Timer_t mechStart = mTimer->tick();
+                if (mServer)
+                {
+                    std::vector<MWBase::MechanicsManager::SimulationObserver> observers;
+                    mServer->collectSimulationObservers(observers);
+                    mWorld->setNavigatorObservers(observers);
+                    mMechanicsManager->setSimulationObservers(
+                        std::move(observers), mServer->getActorSimulationRadius());
+                }
                 mMechanicsManager->update(dt, false);
+                timings.mMechanicsUpdate += mTimer->delta_m(mechStart, mTimer->tick());
+
+                const osg::Timer_t worldStart2 = mTimer->tick();
                 mWorld->updatePhysics(dt, false, tickStart, tickNumber, *mStats);
                 mWorld->update(dt, false);
+                timings.mWorldUpdate += mTimer->delta_m(worldStart2, mTimer->tick());
+            }
+            else
+            {
+                timings.mWorldUpdate += mTimer->delta_m(worldStart1, mTimer->tick());
             }
         }
         catch (const std::exception& e)
@@ -326,15 +352,18 @@ namespace TES3MPHeadless
             Log(Debug::Error) << "Error in headless simulation tick " << tickNumber << ": " << e.what();
         }
 
+        const osg::Timer_t worldCleanupStart = mTimer->tick();
         mUnrefQueue->flush(*mWorkQueue);
-
-        mLuaWorker->allowUpdate(tickStart, tickNumber, *mStats);
-        mLuaWorker->finishUpdate(tickStart, tickNumber, *mStats);
-
         MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
         timeManager.updateIsPaused();
         timeManager.setSimulationTime(timeManager.getSimulationTime() + dt);
         timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
+        timings.mWorldUpdate += mTimer->delta_m(worldCleanupStart, mTimer->tick());
+
+        const osg::Timer_t luaWorkerStart = mTimer->tick();
+        mLuaWorker->allowUpdate(tickStart, tickNumber, *mStats);
+        mLuaWorker->finishUpdate(tickStart, tickNumber, *mStats);
+        timings.mLuaUpdate += mTimer->delta_m(luaWorkerStart, mTimer->tick());
 
         return true;
     }
@@ -346,37 +375,101 @@ namespace TES3MPHeadless
 
         Log(Debug::Info) << "Entering headless simulation loop: tickRate=" << mConfig.mTickRate
                          << " Hz, fixedDt=" << fixedDt << " s, port=" << mConfig.mPort
+                         << ", cellRadius=" << mConfig.mCellRadius
+                         << (mConfig.mProfileTicks ? ", profileTicks=on" : "")
                          << (mConfig.mMaxTicks > 0 ? ", maxTicks=" + std::to_string(mConfig.mMaxTicks) : "");
 
         unsigned int tickNumber = 0;
         auto nextTickTime = std::chrono::steady_clock::now();
+        const unsigned int statusIntervalTicks = static_cast<unsigned int>(std::max(1.0, mConfig.mTickRate));
+        TickTimingsMs accumTimings;
+        double peakTickMs = 0.0;
+        unsigned int accumSampleCount = 0;
+
+        auto formatBreakdown = [](const TickTimingsMs& t) {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(2)
+                << "total=" << t.total() << "ms"
+                << " [poll=" << t.mPollNetwork << "ms"
+                << ", world=" << t.mWorldUpdate << "ms"
+                << ", mechanics=" << t.mMechanicsUpdate << "ms"
+                << ", lua=" << t.mLuaUpdate << "ms"
+                << ", broadcast=" << t.mBroadcastState << "ms]";
+            return oss.str();
+        };
 
         while (!mStopRequested && !mStateManager->hasQuitRequest() && (!mServer || mServer->isRunning()))
         {
             if (mConfig.mMaxTicks > 0 && tickNumber >= mConfig.mMaxTicks)
                 break;
 
+            TickTimingsMs timings;
+
+            const osg::Timer_t pollStart = mTimer->tick();
             pollNetwork(tickNumber);
+            timings.mPollNetwork = mTimer->delta_m(pollStart, mTimer->tick());
+
             if (mServer && !mServer->isRunning())
                 break;
 
             const float scaledDt
                 = static_cast<float>(fixedDt * mWorld->getTimeManager()->getSimulationTimeScale());
-            if (!stepSimulation(tickNumber, scaledDt))
+            if (!stepSimulation(tickNumber, scaledDt, timings))
                 break;
 
+            const osg::Timer_t bcastStart = mTimer->tick();
             broadcastNetworkState(tickNumber, scaledDt);
+            timings.mBroadcastState = mTimer->delta_m(bcastStart, mTimer->tick());
+
             ++tickNumber;
 
-            if (tickNumber == 1 || (tickNumber % static_cast<unsigned int>(std::max(1.0, mConfig.mTickRate))) == 0)
+            const double tickTotalMs = timings.total();
+            accumTimings.mPollNetwork += timings.mPollNetwork;
+            accumTimings.mWorldUpdate += timings.mWorldUpdate;
+            accumTimings.mMechanicsUpdate += timings.mMechanicsUpdate;
+            accumTimings.mLuaUpdate += timings.mLuaUpdate;
+            accumTimings.mBroadcastState += timings.mBroadcastState;
+            peakTickMs = std::max(peakTickMs, tickTotalMs);
+            ++accumSampleCount;
+
+            if (tickTotalMs > 16.0)
             {
                 const MWWorld::CellStore* cell = mWorld->getWorldScene().getCurrentCell();
-                Log(Debug::Info) << "Headless tick " << tickNumber
-                                 << " | simTime=" << mWorld->getTimeManager()->getSimulationTime()
-                                 << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>")
-                                 << " | activeCells=" << mWorld->getWorldScene().getActiveCells().size()
-                                 << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0)
-                                 << " | authDeltas=" << (mServer ? mServer->getAuthoritativeDeltaCount() : 0);
+                Log(Debug::Warning) << "Slow headless tick " << tickNumber
+                                    << " (" << (cell ? cell->getCell()->getDescription() : "<none>")
+                                    << ", activeCells=" << mWorld->getWorldScene().getActiveCells().size()
+                                    << "): " << formatBreakdown(timings);
+            }
+
+            if (tickNumber == 1 || (tickNumber % statusIntervalTicks) == 0)
+            {
+                const MWWorld::CellStore* cell = mWorld->getWorldScene().getCurrentCell();
+                std::ostringstream statusLine;
+                statusLine << "Headless tick " << tickNumber
+                           << " | simTime=" << mWorld->getTimeManager()->getSimulationTime()
+                           << "s | cell=" << (cell ? cell->getCell()->getDescription() : "<none>")
+                           << " | activeCells=" << mWorld->getWorldScene().getActiveCells().size()
+                           << " | players=" << (mServer ? mServer->getConnectedPlayerCount() : 0)
+                           << " | authDeltas=" << (mServer ? mServer->getAuthoritativeDeltaCount() : 0);
+
+                if (mConfig.mProfileTicks && accumSampleCount > 0)
+                {
+                    const double invN = 1.0 / static_cast<double>(accumSampleCount);
+                    TickTimingsMs avg{
+                        accumTimings.mPollNetwork * invN,
+                        accumTimings.mWorldUpdate * invN,
+                        accumTimings.mMechanicsUpdate * invN,
+                        accumTimings.mLuaUpdate * invN,
+                        accumTimings.mBroadcastState * invN
+                    };
+                    statusLine << " | avg=" << formatBreakdown(avg)
+                               << " | peak=" << std::fixed << std::setprecision(2) << peakTickMs << "ms";
+                    accumTimings = TickTimingsMs{};
+                    peakTickMs = 0.0;
+                    accumSampleCount = 0;
+                }
+
+                Log(Debug::Info) << statusLine.str();
             }
 
             nextTickTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(stepDuration);

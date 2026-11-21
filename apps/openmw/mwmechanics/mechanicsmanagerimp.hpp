@@ -247,6 +247,10 @@ namespace MWMechanics
         GreetingState getGreetingState(const MWWorld::Ptr& ptr) const override;
         void fastForwardAi() const override;
 
+#ifdef TES3MP_HEADLESS
+        void setSimulationObservers(std::vector<SimulationObserver> observers, float exteriorActiveRadius) override;
+#endif
+
     private:
         bool canCommitCrimeAgainst(const MWWorld::Ptr& victim, const MWWorld::Ptr& attacker);
         bool canReportCrime(

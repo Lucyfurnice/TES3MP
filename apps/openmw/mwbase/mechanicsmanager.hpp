@@ -10,6 +10,11 @@
 
 #include "../mwworld/ptr.hpp"
 
+#ifdef TES3MP_HEADLESS
+#include <components/esm/refid.hpp>
+#include <osg/Vec3f>
+#endif
+
 namespace osg
 {
     class Stats;
@@ -313,6 +318,19 @@ namespace MWBase
         virtual float getAngleToPlayer(const MWWorld::Ptr& ptr) const = 0;
         virtual MWMechanics::GreetingState getGreetingState(const MWWorld::Ptr& ptr) const = 0;
         virtual void fastForwardAi() const = 0;
+
+#ifdef TES3MP_HEADLESS
+        struct SimulationObserver
+        {
+            osg::Vec3f mPosition;
+            ESM::RefId mWorldspace;
+            bool mIsExterior = true;
+            const MWWorld::CellStore* mCell = nullptr;
+        };
+
+        /// Set active connected-player observer positions and exterior simulation radius for distance-based AI/physics culling.
+        virtual void setSimulationObservers(std::vector<SimulationObserver> observers, float exteriorActiveRadius) = 0;
+#endif
     };
 }
 

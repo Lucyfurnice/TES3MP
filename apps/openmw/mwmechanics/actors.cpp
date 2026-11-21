@@ -1448,6 +1448,10 @@ namespace MWMechanics
 
         const MWWorld::Ptr player = getPlayer();
         const MWBase::World* const world = MWBase::Environment::get().getWorld();
+#ifdef TES3MP_HEADLESS
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        const float activeRange = static_cast<float>(Settings::game().mActorsProcessingRange);
+#endif
 
         struct CacheEntry
         {
@@ -1464,6 +1468,10 @@ namespace MWMechanics
             if (actor.isInvalid())
                 continue;
             const MWWorld::Ptr& ptr = actor.getPtr();
+#ifdef TES3MP_HEADLESS
+            if (ptr != player && !isWithinActiveSimulationRange(ptr, playerPos, activeRange))
+                continue;
+#endif
             const MWWorld::Class& cls = ptr.getClass();
             cache.push_back({ ptr, cls.getMaxSpeed(ptr), world->getHalfExtents(ptr), cls.getMovementSettings(ptr) });
         }
@@ -1608,6 +1616,52 @@ namespace MWMechanics
         }
     }
 
+#ifdef TES3MP_HEADLESS
+    void Actors::setSimulationObservers(std::vector<SimulationObserver> observers, float exteriorActiveRadius)
+    {
+        mSimulationObservers = std::move(observers);
+        mExteriorSimulationRadius = std::max(0.f, exteriorActiveRadius);
+    }
+
+    bool Actors::isWithinActiveSimulationRange(
+        const MWWorld::Ptr& ptr, const osg::Vec3f& fallbackPos, float fallbackRange) const
+    {
+        if (!ptr.isInCell())
+            return false;
+
+        const MWWorld::CellStore* cell = ptr.getCell();
+        const bool isExterior = cell->isExterior();
+        const float activeRadius = mExteriorSimulationRadius > 0.f ? mExteriorSimulationRadius : fallbackRange;
+        const float radiusSq = activeRadius * activeRadius;
+        const osg::Vec3f actorPos = ptr.getRefData().getPosition().asVec3();
+
+        if (mSimulationObservers.empty())
+        {
+            if (!isExterior)
+                return true;
+            return (fallbackPos - actorPos).length2() <= radiusSq;
+        }
+
+        const ESM::RefId worldspace = cell->getCell()->getWorldSpace();
+        for (const SimulationObserver& obs : mSimulationObservers)
+        {
+            if (isExterior)
+            {
+                if (obs.mIsExterior && obs.mWorldspace == worldspace
+                    && (obs.mPosition - actorPos).length2() <= radiusSq)
+                {
+                    return true;
+                }
+            }
+            else if (!obs.mIsExterior && obs.mCell == cell)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+#endif
+
     void Actors::update(float duration, bool paused)
     {
         if (!paused)
@@ -1660,8 +1714,10 @@ namespace MWMechanics
                     = MWBase::Environment::get().getLuaManager()->getActorControls(actor.getPtr());
 
 #ifdef TES3MP_HEADLESS
-                // In multi-cell headless mode, active residency already scopes loaded actors to occupied cells.
-                const bool inProcessingRange = true;
+                // Cull exterior AI/mechanics/physics beyond active simulation radius of all connected players.
+                const bool inProcessingRange = isPlayer
+                    || isWithinActiveSimulationRange(
+                        actor.getPtr(), playerPos, static_cast<float>(actorsProcessingRange));
 #else
                 const float distSqr = (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length2();
                 // AI processing is only done within given distance to the player.
@@ -1742,6 +1798,11 @@ namespace MWMechanics
                                     continue;
                                 if (otherActor.getPtr() == actor.getPtr() || isPlayer) // player is not AI-controlled
                                     continue;
+#ifdef TES3MP_HEADLESS
+                                if (!isWithinActiveSimulationRange(
+                                        otherActor.getPtr(), playerPos, static_cast<float>(actorsProcessingRange)))
+                                    continue;
+#endif
                                 engageCombat(
                                     actor.getPtr(), otherActor.getPtr(), cachedAllies, otherActor.getPtr() == player);
                             }
@@ -1847,10 +1908,11 @@ namespace MWMechanics
                     alwaysActive = !seq.isEmpty() && seq.getActivePackage().alwaysActive();
                 }
 #ifdef TES3MP_HEADLESS
-                // Active cell residency already scopes loaded actors to occupied player neighborhoods;
-                // keep physics & animation active for all loaded actors regardless of dummy host player distance.
+                // Keep physics & animation active only within active simulation radius of a connected player.
                 (void)dist;
-                const bool inRange = true;
+                const bool inRange = isPlayer || alwaysActive
+                    || isWithinActiveSimulationRange(
+                        actor.getPtr(), playerPos, static_cast<float>(actorsProcessingRange));
 #else
                 const bool inRange = isPlayer || dist <= actorsProcessingRange || alwaysActive;
 #endif

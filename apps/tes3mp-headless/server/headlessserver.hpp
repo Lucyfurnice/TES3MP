@@ -1,6 +1,7 @@
 #ifndef TES3MP_HEADLESS_SERVER_HPP
 #define TES3MP_HEADLESS_SERVER_HPP
 
+#include <apps/openmw/mwbase/mechanicsmanager.hpp>
 #include <apps/openmw/mwworld/ptr.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class Player;
@@ -63,6 +65,11 @@ namespace TES3MPHeadless
         HeadlessServer(const HeadlessServer&) = delete;
         HeadlessServer& operator=(const HeadlessServer&) = delete;
 
+        /// Resolve the server plugin home directory ([Plugins] home, default "./server") from the same
+        /// tes3mp-server config files init() reads. Usable before the World/HeadlessServer exist.
+        static std::filesystem::path resolveServerHome(
+            Files::ConfigurationManager& cfgMgr, const std::filesystem::path& serverCfgPath);
+
         /// Initialize RakNet UDP socket, load tes3mp-server Lua/MoonScript plugins, and fire OnServerInit/OnServerPostInit.
         void init();
 
@@ -80,6 +87,11 @@ namespace TES3MPHeadless
 
         /// Append the ESM::Cell of every active POSTLOADED player (used by Phase 7 multi-cell residency).
         void collectPlayerCells(std::vector<ESM::Cell>& outCells) const;
+
+        /// Populate active observer positions and exterior AI/physics simulation radius for distance culling.
+        void collectSimulationObservers(
+            std::vector<MWBase::MechanicsManager::SimulationObserver>& outObservers) const;
+        float getActorSimulationRadius() const;
 
         uint16_t getBoundPort() const;
         std::size_t getConnectedPlayerCount() const;
@@ -116,17 +128,29 @@ namespace TES3MPHeadless
             bool mInitialized = false;
         };
 
+        struct ConnectedObserver
+        {
+            ::Player* mPlayer = nullptr;
+            osg::Vec3f mPosition;
+            MWWorld::CellStore* mCell = nullptr;
+            bool mIsExterior = true;
+        };
+
         std::filesystem::path resolveConfigPath(const std::filesystem::path& candidate) const;
         std::filesystem::path resolvePluginHome(const std::string& rawHome, const std::filesystem::path& cfgDir) const;
         MWWorld::CellStore* resolveCellStore(const ESM::Cell& cell) const;
         MWWorld::Ptr resolveTargetPtr(const mwmp::Target& target, const MWWorld::CellStore* hintCell) const;
         bool isPlayerAnchorPtr(const MWWorld::Ptr& ptr) const;
+        /// Live connected players (POSTLOADED and with a cell confirmed by ID_PLAYER_CELL_CHANGE), using the
+        /// latest ID_PLAYER_POSITION coordinates rather than the (possibly lagging) world anchor positions.
+        void collectConnectedObservers(std::vector<ConnectedObserver>& outObservers) const;
 
         void syncPlayersToWorld();
         void syncActorsToWorld();
         void broadcastAuthoritativeActorDeltas();
 
         bool validatePlayerPosition(::Player& player);
+        void handlePlayerCellChange(::Player& player);
         bool handlePlayerAttack(::Player& player, mwmp::Attack& attack);
         bool handlePlayerCast(::Player& player, mwmp::Cast& cast);
         bool handleObjectAction(unsigned char packetId, ::Player& player, mwmp::BaseObjectList& objectList);
@@ -139,6 +163,7 @@ namespace TES3MPHeadless
         std::unique_ptr<mwmp::Networking> mNetworking;
         std::unordered_map<unsigned short, MWWorld::Ptr> mPlayerAnchors;
         std::unordered_map<unsigned short, PlayerValidationState> mPlayerValidation;
+        std::unordered_set<unsigned short> mPlayersWithKnownCell;
         std::unordered_map<const MWWorld::LiveCellRefBase*, ActorSnapshot> mActorSnapshots;
         std::vector<QueuedActorSync> mPendingActorSyncs;
         uint16_t mBoundPort = 0;

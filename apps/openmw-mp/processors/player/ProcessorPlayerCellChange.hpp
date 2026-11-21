@@ -25,6 +25,9 @@ namespace mwmp
 
             Script::Call<Script::CallbackIdentity("OnPlayerCellChange")>(player.getId());
 
+            if (Networking::getPtr())
+                Networking::getPtr()->notifyPlayerCellChange(player);
+
             player.exchangeFullInfo = true;
 
             player.forEachLoaded([this](Player *pl, Player *other) {

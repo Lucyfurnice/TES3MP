@@ -796,9 +796,29 @@ namespace MWRender
     {
         // Compute from LandManager (decoded ESM::Land DATA_VHGT) with bilinear interpolation,
         // matching btHeightfieldTerrainShape in MWPhysics without requiring Terrain::World.
-        ESM::ExteriorCellLocation cellPos = ESM::positionToExteriorCellLocation(pos.x(), pos.y(), worldspace);
-        osg::ref_ptr<const ESMTerrain::LandObject> land = getLandManager()->getLand(cellPos);
-        const ESM::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : nullptr;
+        const ESM::ExteriorCellLocation cellPos = ESM::positionToExteriorCellLocation(pos.x(), pos.y(), worldspace);
+
+        struct TerrainCellCache
+        {
+            const LandManager* mManager = nullptr;
+            ESM::ExteriorCellLocation mCellPos;
+            osg::ref_ptr<const ESMTerrain::LandObject> mLand;
+            const ESM::LandData* mData = nullptr;
+            bool mValid = false;
+        };
+        static thread_local TerrainCellCache sCache;
+
+        LandManager* landMgr = getLandManager();
+        if (!sCache.mValid || sCache.mManager != landMgr || sCache.mCellPos != cellPos)
+        {
+            sCache.mManager = landMgr;
+            sCache.mCellPos = cellPos;
+            sCache.mLand = landMgr ? landMgr->getLand(cellPos) : nullptr;
+            sCache.mData = sCache.mLand ? sCache.mLand->getData(ESM::Land::DATA_VHGT) : nullptr;
+            sCache.mValid = true;
+        }
+
+        const ESM::LandData* data = sCache.mData;
         if (!data)
             return static_cast<float>(ESM::Land::DEFAULT_HEIGHT);
 
