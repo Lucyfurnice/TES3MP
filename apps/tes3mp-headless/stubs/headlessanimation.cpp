@@ -2,6 +2,15 @@
 #include <apps/openmw/mwrender/npcanimation.hpp>
 #include <apps/openmw/mwrender/rotatecontroller.hpp>
 
+#include <apps/openmw/mwbase/environment.hpp>
+#include <apps/openmw/mwbase/world.hpp>
+#include <apps/openmw/mwmechanics/combat.hpp>
+#include <apps/openmw/mwmechanics/weapontype.hpp>
+#include <apps/openmw/mwworld/class.hpp>
+#include <apps/openmw/mwworld/esmstore.hpp>
+#include <apps/openmw/mwworld/inventorystore.hpp>
+#include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadweap.hpp>
 #include <components/esm3/loadrace.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/strings/algorithm.hpp>
@@ -401,47 +410,55 @@ namespace MWRender
 
     osg::Vec3f Animation::runAnimation(float duration)
     {
-        for (auto it = mStates.begin(); it != mStates.end();)
+        std::vector<std::string> groupNames;
+        groupNames.reserve(mStates.size());
+        for (const auto& [name, state] : mStates)
         {
-            AnimState& state = it->second;
-            if (!state.mPlaying)
-            {
-                ++it;
+            if (state.mPlaying)
+                groupNames.push_back(name);
+        }
+
+        for (const std::string& groupName : groupNames)
+        {
+            auto it = mStates.find(groupName);
+            if (it == mStates.end() || !it->second.mPlaying)
                 continue;
-            }
 
-            const float oldTime = state.getTime();
-            const float newTime = oldTime + duration * state.mSpeedMult;
-            state.setTime(newTime);
+            const float oldTime = it->second.getTime();
+            float newTime = oldTime + duration * it->second.mSpeedMult;
+            if (!it->second.shouldLoop() && newTime > it->second.mStopTime)
+                newTime = it->second.mStopTime;
+            it->second.setTime(newTime);
 
-            if (state.mSource && state.mSource->mKeyframes && mTextKeyListener)
+            auto src = it->second.mSource;
+            if (src && src->mKeyframes && mTextKeyListener)
             {
-                const auto& keys = state.mSource->mKeyframes->mTextKeys;
+                const auto& keys = src->mKeyframes->mTextKeys;
                 for (auto kit = keys.begin(); kit != keys.end(); ++kit)
                 {
-                    if (kit->first > oldTime && kit->first <= newTime
-                        && kit->second.starts_with(state.mGroupname))
+                    if (kit->first > oldTime && kit->first <= newTime && kit->second.starts_with(groupName))
                     {
-                        mTextKeyListener->handleTextKey(state.mGroupname, kit, keys);
+                        mTextKeyListener->handleTextKey(groupName, kit, keys);
                     }
                 }
             }
 
+            it = mStates.find(groupName);
+            if (it == mStates.end() || !it->second.mPlaying)
+                continue;
+
+            AnimState& state = it->second;
             if (state.shouldLoop())
             {
                 --state.mLoopCount;
                 state.setTime(state.mLoopStartTime);
             }
-            else if (newTime >= state.mStopTime)
+            else if (state.getTime() >= state.mStopTime)
             {
                 state.mPlaying = false;
                 if (state.mAutoDisable)
-                {
-                    it = mStates.erase(it);
-                    continue;
-                }
+                    mStates.erase(it);
             }
-            ++it;
         }
         return osg::Vec3f(0.f, 0.f, 0.f);
     }
@@ -631,7 +648,51 @@ namespace MWRender
     }
     void NpcAnimation::attachArrow() {}
     void NpcAnimation::detachArrow() {}
-    void NpcAnimation::releaseArrow(float /*attackStrength*/) {}
+    void NpcAnimation::releaseArrow(float attackStrength)
+    {
+        if (mPtr.isEmpty() || !mPtr.getClass().hasInventoryStore(mPtr))
+            return;
+
+        MWWorld::InventoryStore& inv = mPtr.getClass().getInventoryStore(mPtr);
+        MWWorld::ContainerStoreIterator weapon = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+        if (weapon == inv.end() || weapon->getType() != ESM::Weapon::sRecordId)
+            return;
+
+        const osg::Quat orient = osg::Quat(mPtr.getRefData().getPosition().rot[0], osg::Vec3f(-1, 0, 0))
+            * osg::Quat(mPtr.getRefData().getPosition().rot[2], osg::Vec3f(0, 0, -1));
+        const osg::Vec3f launchPos = mPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 96.f)
+            + orient * osg::Vec3f(0.f, 24.f, 0.f);
+
+        const MWWorld::Store<ESM::GameSetting>& gmst
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
+        MWMechanics::applyFatigueLoss(mPtr, *weapon, attackStrength);
+
+        if (MWMechanics::getWeaponType(weapon->get<ESM::Weapon>()->mBase->mData.mType)->mWeaponClass
+            == ESM::WeaponType::Thrown)
+        {
+            const float fMin = gmst.find("fThrownWeaponMinSpeed")->mValue.getFloat();
+            const float fMax = gmst.find("fThrownWeaponMaxSpeed")->mValue.getFloat();
+            const float speed = fMin + (fMax - fMin) * attackStrength;
+            MWWorld::Ptr weaponPtr = *weapon;
+            MWBase::Environment::get().getWorld()->launchProjectile(
+                mPtr, weaponPtr, launchPos, orient, weaponPtr, speed, attackStrength);
+            inv.remove(*weapon, 1);
+        }
+        else
+        {
+            MWWorld::ContainerStoreIterator ammo = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
+            if (ammo == inv.end())
+                return;
+            const float fMin = gmst.find("fProjectileMinSpeed")->mValue.getFloat();
+            const float fMax = gmst.find("fProjectileMaxSpeed")->mValue.getFloat();
+            const float speed = fMin + (fMax - fMin) * attackStrength;
+            MWWorld::Ptr weaponPtr = *weapon;
+            MWWorld::Ptr ammoPtr = *ammo;
+            MWBase::Environment::get().getWorld()->launchProjectile(
+                mPtr, ammoPtr, launchPos, orient, weaponPtr, speed, attackStrength);
+            inv.remove(ammoPtr, 1);
+        }
+    }
     osg::Group* NpcAnimation::getArrowBone()
     {
         return nullptr;

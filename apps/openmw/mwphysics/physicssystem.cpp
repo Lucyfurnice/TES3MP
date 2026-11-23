@@ -285,7 +285,19 @@ namespace MWPhysics
         const auto it1 = mActors.find(actor1.mRef);
         const auto it2 = mActors.find(actor2.mRef);
         if (it1 == mActors.end() || it2 == mActors.end())
+        {
+#ifdef TES3MP_HEADLESS
+            static bool sLoggedMissing = false;
+            if (!sLoggedMissing)
+            {
+                sLoggedMissing = true;
+                Log(Debug::Info) << "[PhysicsSystem] getLineOfSight missing actor in mActors: a1="
+                                 << actor1.getCellRef().getRefId() << " found1=" << (it1 != mActors.end())
+                                 << " a2=" << actor2.getCellRef().getRefId() << " found2=" << (it2 != mActors.end());
+            }
+#endif
             return false;
+        }
 
         return mTaskScheduler->getLineOfSight(it1->second, it2->second);
     }

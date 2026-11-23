@@ -2,17 +2,19 @@
 #define TES3MP_HEADLESS_SERVER_HPP
 
 #include "cellinstancemanager.hpp"
+#include "headlesscombat.hpp"
+#include "headlessdialogue.hpp"
+#include "headlessreplication.hpp"
+#include "playeranchormanager.hpp"
 
 #include <apps/openmw/mwbase/mechanicsmanager.hpp>
 #include <apps/openmw/mwworld/ptr.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/Base/BaseObject.hpp>
-#include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Base/BaseWorldstate.hpp>
 #include <components/openmw-mp/Base/ServerAuthority.hpp>
 
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -32,7 +34,6 @@ namespace Files
 namespace MWWorld
 {
     class CellStore;
-    struct LiveCellRefBase;
     class World;
 }
 
@@ -55,6 +56,7 @@ namespace TES3MPHeadless
         uint16_t mPortOverride = 0; // 0 = use value from server config
         bool mHasPortOverride = false;
         mwmp::ServerAuthorityConfig mAuthority;
+        bool mSmokeArrestCombat = false;
     };
 
     /// Bridges tes3mp-server (RakNet, PacketController, Player/Cell registries, and LuaJIT ScriptController)
@@ -62,17 +64,14 @@ namespace TES3MPHeadless
     class HeadlessServer
     {
     public:
+        using AuthoritativeDeltaStats = TES3MPHeadless::AuthoritativeDeltaStats;
+
         explicit HeadlessServer(Files::ConfigurationManager& cfgMgr, MWWorld::World& world,
             HeadlessServerConfig config);
         ~HeadlessServer();
 
         HeadlessServer(const HeadlessServer&) = delete;
         HeadlessServer& operator=(const HeadlessServer&) = delete;
-
-        /// Resolve the server plugin home directory ([Plugins] home, default "./server") from the same
-        /// tes3mp-server config files init() reads. Usable before the World/HeadlessServer exist.
-        static std::filesystem::path resolveServerHome(
-            Files::ConfigurationManager& cfgMgr, const std::filesystem::path& serverCfgPath);
 
         /// Initialize RakNet UDP socket, load tes3mp-server Lua/MoonScript plugins, and fire OnServerInit/OnServerPostInit.
         void init();
@@ -102,16 +101,15 @@ namespace TES3MPHeadless
         bool isAuthoritative() const;
         std::uint64_t getAuthoritativeDeltaCount() const;
 
-        struct AuthoritativeDeltaStats
+        AuthoritativeDeltaStats getAuthoritativeDeltaStats() const
         {
-            std::uint64_t mPos = 0;
-            std::uint64_t mAnim = 0;
-            std::uint64_t mStats = 0;
-            std::uint64_t mEquip = 0;
-        };
-        AuthoritativeDeltaStats getAuthoritativeDeltaStats() const { return mDeltaStats; }
+            return mReplication.getAuthoritativeDeltaStats();
+        }
         /// Returns cumulative delta counts since the previous status sample and resets the interval counters.
-        AuthoritativeDeltaStats consumeAuthoritativeDeltaStats(std::uint64_t& outTotalDeltas);
+        AuthoritativeDeltaStats consumeAuthoritativeDeltaStats(std::uint64_t& outTotalDeltas)
+        {
+            return mReplication.consumeAuthoritativeDeltaStats(outTotalDeltas);
+        }
 
     private:
         struct QueuedActorSync
@@ -120,56 +118,16 @@ namespace TES3MPHeadless
             mwmp::BaseActorList mActorList;
         };
 
-        struct ActorSnapshot
-        {
-            osg::Vec3f mPos;
-            osg::Vec3f mRot;
-            unsigned int mMovementFlags = 0;
-            char mDrawState = 0;
-            bool mIsFlying = false;
-            float mHealth = 0.f;
-            float mMagicka = 0.f;
-            float mFatigue = 0.f;
-            bool mDead = false;
-            bool mDeathBroadcasted = false;
-            std::uint64_t mEquipmentHash = 0;
-            bool mEquipmentBroadcasted = false;
-            bool mWasMoving = false;
-            bool mInitialized = false;
-        };
-
-        struct PlayerValidationState
-        {
-            ESM::Cell mLastCell;
-            osg::Vec3f mLastPos;
-            std::chrono::steady_clock::time_point mLastUpdate;
-            bool mInitialized = false;
-        };
-
-        struct ConnectedObserver
-        {
-            ::Player* mPlayer = nullptr;
-            osg::Vec3f mPosition;
-            MWWorld::CellStore* mCell = nullptr;
-            bool mIsExterior = true;
-        };
-
         std::filesystem::path resolveConfigPath(const std::filesystem::path& candidate) const;
         std::filesystem::path resolvePluginHome(const std::string& rawHome, const std::filesystem::path& cfgDir) const;
-        MWWorld::CellStore* resolveCellStore(const ESM::Cell& cell) const;
-        MWWorld::Ptr resolveTargetPtr(const mwmp::Target& target, const MWWorld::CellStore* hintCell) const;
-        bool isPlayerAnchorPtr(const MWWorld::Ptr& ptr) const;
-        /// Live connected players (POSTLOADED and with a cell confirmed by ID_PLAYER_CELL_CHANGE), using the
-        /// latest ID_PLAYER_POSITION coordinates rather than the (possibly lagging) world anchor positions.
-        void collectConnectedObservers(std::vector<ConnectedObserver>& outObservers) const;
 
         void syncPlayersToWorld();
+        void syncPlayerAnchorState(const ::Player& player, MWWorld::Ptr& anchor);
         void syncActorsToWorld();
         void broadcastAuthoritativeActorDeltas();
 
         bool validatePlayerPosition(::Player& player);
         void handlePlayerCellChange(::Player& player);
-        bool handlePlayerAttack(::Player& player, mwmp::Attack& attack);
         bool handlePlayerCast(::Player& player, mwmp::Cast& cast);
         bool handleObjectAction(unsigned char packetId, ::Player& player, mwmp::BaseObjectList& objectList);
 
@@ -177,6 +135,7 @@ namespace TES3MPHeadless
         void handleLuaRecordCreated(const std::type_info& type, const void* recordPtr);
         void handleServerObjectEvent(unsigned char packetId, const mwmp::BaseObjectList& objectList);
         void handleServerActorAI(const mwmp::BaseActorList& actorList);
+        void stepSmokeArrestCombat();
 
         Files::ConfigurationManager& mCfgMgr;
         MWWorld::World& mWorld;
@@ -184,22 +143,27 @@ namespace TES3MPHeadless
 
         RakNet::RakPeerInterface* mPeer = nullptr;
         std::unique_ptr<mwmp::Networking> mNetworking;
-        std::unordered_map<unsigned short, MWWorld::Ptr> mPlayerAnchors;
+        HeadlessPlayerAnchorManager mAnchors;
+        HeadlessCombatController mCombat;
+        HeadlessDialogueController mDialogue;
+        HeadlessReplicationSystem mReplication;
         std::unordered_map<unsigned short, PlayerValidationState> mPlayerValidation;
         std::unordered_set<unsigned short> mPlayersWithKnownCell;
-        std::unordered_map<const MWWorld::LiveCellRefBase*, ActorSnapshot> mActorSnapshots;
-        std::unordered_map<const MWWorld::LiveCellRefBase*, std::uint64_t> mContainerSnapshots;
         std::vector<QueuedActorSync> mPendingActorSyncs;
         CellInstanceManager mCellInstances;
         uint16_t mBoundPort = 0;
         double mBroadcastAccumulator = 0.0;
-        std::uint64_t mAuthoritativeDeltaCount = 0;
-        AuthoritativeDeltaStats mDeltaStats;
-        std::size_t mStallBroadcastCycles = 0;
-        std::size_t mContainerSweepCounter = 0;
         bool mLogInitialized = false;
         bool mScriptsLoaded = false;
         bool mShutDown = false;
+        bool mSmokeInitialized = false;
+        bool mSmokeArrestTriggered = false;
+        bool mSmokeWeaponDrawn = false;
+        bool mSmokeLastAttacking = false;
+        bool mSmokeDamageObserved = false;
+        int mSmokeBounty = 40;
+        MWWorld::Ptr mSmokeGuard;
+        MWWorld::Ptr mSmokeAnchor;
     };
 }
 

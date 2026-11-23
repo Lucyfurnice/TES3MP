@@ -1201,8 +1201,14 @@ namespace MWMechanics
     void Actors::updateCrimePursuit(const MWWorld::Ptr& ptr, float duration, SidingCache& cachedAllies) const
     {
         const MWWorld::Ptr player = getPlayer();
+#ifdef TES3MP_HEADLESS
+        static const ESM::RefId sPlayerAnchorRefId = ESM::RefId::stringRefId("player");
+        if (ptr == player || ptr.getCellRef().getRefId() == sPlayerAnchorRefId)
+            return;
+#else
         if (ptr == player)
             return;
+#endif
 
         const auto& actorClass = ptr.getClass();
         if (!actorClass.isNpc())
@@ -1243,7 +1249,8 @@ namespace MWMechanics
                     time an attempt was made to arrest them
                 */
                 if (playerStats.getBounty() >= cutoff * iCrimeThresholdMultiplier
-                    && !mwmp::Main::get().getLocalPlayer()->diedSinceArrestAttempt)
+                    && (!mwmp::Main::get().getLocalPlayer()
+                        || !mwmp::Main::get().getLocalPlayer()->diedSinceArrestAttempt))
                 /*
                     End of tes3mp change (major)
                 */
@@ -1258,6 +1265,69 @@ namespace MWMechanics
                 creatureStats.setAlarmed(true);
                 npcStats.setCrimeId(world->getPlayer().getNewCrimeId());
             }
+#ifdef TES3MP_HEADLESS
+            else if (creatureStats.getAiSetting(AiSetting::Alarm).getBase() >= 100 && !creatureStats.isDead())
+            {
+                static const int iCrimeThresholdMultiplier
+                    = esmStore.get<ESM::GameSetting>().find("iCrimeThresholdMultiplier")->mValue.getInteger();
+                const int attackBounty = cutoff * iCrimeThresholdMultiplier;
+                const osg::Vec3f guardPos = ptr.getRefData().getPosition().asVec3();
+                constexpr float maxSightDistSq = 800.f * 800.f;
+
+                for (const Actor& candidate : mActors)
+                {
+                    if (candidate.isInvalid())
+                        continue;
+                    const MWWorld::Ptr& anchor = candidate.getPtr();
+                    if (anchor.isEmpty() || anchor == player || anchor.getCellRef().getRefId() != sPlayerAnchorRefId)
+                        continue;
+                    if (!anchor.getClass().isNpc() || anchor.getClass().getCreatureStats(anchor).isDead())
+                        continue;
+                    const auto& anchorNpcStats = anchor.getClass().getNpcStats(anchor);
+                    if (anchorNpcStats.isWerewolf())
+                        continue;
+                    const int bounty = anchorNpcStats.getBounty();
+                    if (bounty <= 0)
+                        continue;
+                    if ((anchor.getRefData().getPosition().asVec3() - guardPos).length2() > maxSightDistSq)
+                        continue;
+                    if (!world->getLOS(ptr, anchor) || !mechanicsManager->awarenessCheck(anchor, ptr))
+                        continue;
+
+                    bool resistedArrestNearby = false;
+                    if (bounty < attackBounty)
+                    {
+                        for (const Actor& other : mActors)
+                        {
+                            if (other.isInvalid())
+                                continue;
+                            const MWWorld::Ptr& otherPtr = other.getPtr();
+                            if (otherPtr.isEmpty() || otherPtr == ptr || !otherPtr.getClass().isNpc())
+                                continue;
+                            if (otherPtr.getClass().isClass(otherPtr, "Guard")
+                                && otherPtr.getClass().getCreatureStats(otherPtr).getAiSequence().isInCombat(anchor))
+                            {
+                                resistedArrestNearby = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (bounty >= attackBounty || resistedArrestNearby)
+                    {
+                        mechanicsManager->startCombat(ptr, anchor, &cachedAllies.getActorsSidingWith(anchor));
+                        creatureStats.setHitAttemptActor(anchor.getCellRef().getRefNum());
+                    }
+                    else
+                    {
+                        creatureStats.getAiSequence().stack(AiPursue(anchor), ptr);
+                    }
+                    creatureStats.setAlarmed(true);
+                    npcStats.setCrimeId(world->getPlayer().getNewCrimeId());
+                    break;
+                }
+            }
+#endif
         }
 
         // if I was a witness to a crime
@@ -2124,6 +2194,11 @@ namespace MWMechanics
     {
         const MWWorld::Ptr ptr = MWBase::Environment::get().getWorldModel()->getPtr(creature);
 
+#ifdef TES3MP_HEADLESS
+        if (!ptr.isEmpty())
+        {
+            notifyHeadlessUnsummon(ptr);
+#else
         /*
             Start of tes3mp change (major)
 
@@ -2153,6 +2228,7 @@ namespace MWMechanics
         /*
             End of tes3mp change (major)
         */
+#endif
 
             const ESM::Static* fx = MWBase::Environment::get().getESMStore()->get<ESM::Static>().search(
                 ESM::RefId::stringRefId("VFX_Summon_End"));

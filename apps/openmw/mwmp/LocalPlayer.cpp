@@ -683,12 +683,12 @@ void LocalPlayer::addItems()
     for (const auto &item : inventoryChanges.items)
     {
         // Skip bound items
-        if (MWBase::Environment::get().getMechanicsManager()->isBoundItem(ESM::RefId::stringRefId(item.refId)))
+        if (MWBase::Environment::get().getMechanicsManager()->isBoundItem(ESM::RefId::deserializeText(item.refId)))
             continue;
 
         try
         {
-            MWWorld::ManualRef itemRef(esmStore, ESM::RefId::stringRefId(item.refId), item.count);
+            MWWorld::ManualRef itemRef(esmStore, ESM::RefId::deserializeText(item.refId), item.count);
             MWWorld::Ptr itemPtr = itemRef.getPtr();
 
             if (item.charge != -1)
@@ -698,7 +698,7 @@ void LocalPlayer::addItems()
                 itemPtr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
 
             if (!item.soul.empty())
-                itemPtr.getCellRef().setSoul(ESM::RefId::stringRefId(item.soul));
+                itemPtr.getCellRef().setSoul(ESM::RefId::deserializeText(item.soul));
 
             LOG_APPEND(TimedLog::LOG_INFO, "- Adding inventory item %s with count %i", item.refId.c_str(), item.count);
 
@@ -737,7 +737,7 @@ void LocalPlayer::addSpellsActive()
         ESM::RefNum casterRefNum = MechanicsHelper::getActorId(activeSpell.caster);
 
         // Don't do a check for a spell's existence, because active effects from potions need to be applied here too
-        activeSpells.addSpell(ESM::RefId::stringRefId(activeSpell.id), activeSpell.isStackingSpell, activeSpell.params.mEffects, activeSpell.params.mDisplayName, casterRefNum, timestamp);
+        activeSpells.addSpell(ESM::RefId::deserializeText(activeSpell.id), activeSpell.isStackingSpell, activeSpell.params.mEffects, activeSpell.params.mDisplayName, casterRefNum, timestamp);
     }
 }
 
@@ -812,7 +812,7 @@ void LocalPlayer::removeItems()
 
     for (const auto &item : inventoryChanges.items)
     {
-        ptrStore.remove(ESM::RefId::stringRefId(item.refId), item.count);
+        ptrStore.remove(ESM::RefId::deserializeText(item.refId), item.count);
 
         LOG_APPEND(TimedLog::LOG_INFO, "- Removing inventory item %s with count %i", item.refId.c_str(), item.count);
     }
@@ -993,6 +993,12 @@ void LocalPlayer::setDynamicStats()
         dynamicStat.setBase(creatureStats.mDynamic[i].mBase);
         dynamicStat.setCurrent(creatureStats.mDynamic[i].mCurrent);
         ptrCreatureStats->setDynamic(i, dynamicStat);
+    }
+
+    if (Main::get().isAuthoritativeServer())
+    {
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "LocalPlayer::setDynamicStats applied health=%.2f/%.2f",
+            creatureStats.mDynamic[0].mCurrent, creatureStats.mDynamic[0].mBase);
     }
 }
 
@@ -1223,11 +1229,11 @@ void LocalPlayer::setEquipment()
             // If the item is not in our inventory, add it as long as it's not a bound item
             if (it == ptrInventory.end())
             {
-                if (!MWBase::Environment::get().getMechanicsManager()->isBoundItem(ESM::RefId::stringRefId(currentItem.refId)))
+                if (!MWBase::Environment::get().getMechanicsManager()->isBoundItem(ESM::RefId::deserializeText(currentItem.refId)))
                 {
                     try
                     {
-                        auto addIter = ptrInventory.ContainerStore::add(ESM::RefId::stringRefId(currentItem.refId), currentItem.count, true);
+                        auto addIter = ptrInventory.ContainerStore::add(ESM::RefId::deserializeText(currentItem.refId), currentItem.count, true);
 
                         ptrInventory.equip(slot, addIter);
                     }
@@ -1449,7 +1455,7 @@ void LocalPlayer::setSelectedSpell()
     MWMechanics::CreatureStats& stats = ptrPlayer.getClass().getCreatureStats(ptrPlayer);
     MWMechanics::Spells& spells = stats.getSpells();
 
-    const ESM::RefId spellId = ESM::RefId::stringRefId(selectedSpellId);
+    const ESM::RefId spellId = ESM::RefId::deserializeText(selectedSpellId);
     if (spellId.empty())
     {
         MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();

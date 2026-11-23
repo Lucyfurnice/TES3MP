@@ -60,7 +60,7 @@ namespace RecordHelper
     template<class RecordType>
     bool doesRecordIdExist(const std::string& id)
     {
-        return doesRecordIdExist<RecordType>(ESM::RefId::stringRefId(id));
+        return doesRecordIdExist<RecordType>(ESM::RefId::deserializeText(id));
     }
 
     void createPlaceholderInteriorCell();

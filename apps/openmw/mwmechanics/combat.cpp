@@ -398,6 +398,14 @@ namespace MWMechanics
 
             MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0, attackStrength,
                 damage, true, hitPosition, true, MWMechanics::DamageSourceType::Ranged);
+#ifdef TES3MP_HEADLESS
+            if (damage > 0.f)
+            {
+                const ESM::RefId weaponId = weapon.isEmpty() ? ESM::RefId() : weapon.getCellRef().getRefId();
+                victim.getClass().onHit(victim, { { "health", damage } }, weaponId, attacker, true,
+                    MWMechanics::DamageSourceType::Ranged);
+            }
+#endif
         }
         /*
             Start of tes3mp addition

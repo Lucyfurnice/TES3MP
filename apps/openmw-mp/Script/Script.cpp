@@ -8,6 +8,18 @@
 Script::ScriptList Script::scripts;
 std::string Script::moddir;
 
+#if defined(ENABLE_LUA)
+lua_State* Script::GetPrimaryLuaState()
+{
+    for (const auto& script : scripts)
+    {
+        if (script && script->script_type == SCRIPT_LUA && script->lang)
+            return static_cast<LangLua*>(script->lang)->lua;
+    }
+    return nullptr;
+}
+#endif
+
 Script::Script(const char *path)
 {
     FILE *file = fopen(path, "rb");

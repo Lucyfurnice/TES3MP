@@ -136,7 +136,7 @@ void DedicatedActor::move(float dt)
         if (isAuthoritativeMoving)
         {
             authoritativeMoveTimer += dt;
-            if (authoritativeMoveTimer >= 0.2f)
+            if (authoritativeMoveTimer >= 0.35f)
             {
                 isAuthoritativeMoving = false;
                 authoritativeMoveTimer = 0.0f;
@@ -281,7 +281,7 @@ void DedicatedActor::setEquipment()
 
         if (!hasItem(packetRefId, packetCharge))
         {
-            ptr.getClass().getContainerStore(ptr).add(ESM::RefId::stringRefId(packetRefId), count, true);
+            ptr.getClass().getContainerStore(ptr).add(ESM::RefId::deserializeText(packetRefId), count, true);
         }
 
         // Equip items silently if this is the first time equipment is being set for this character
@@ -322,6 +322,17 @@ void DedicatedActor::setAi()
 
         MWMechanics::AiWander package(aiDistance, aiDuration, -1, idleList, aiShouldRepeat);
         ptrCreatureStats->getAiSequence().stack(package, ptr, true);
+    }
+    else if (aiAction == mwmp::BaseActorList::ARREST)
+    {
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "DedicatedActor::setAi ARREST opening GM_Dialogue for %s",
+            ptr.getCellRef().getRefId().toDebugString().c_str());
+
+        if (!MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Dialogue)
+            && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Jail))
+        {
+            MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_Dialogue, ptr);
+        }
     }
     else if (hasAiTarget)
     {

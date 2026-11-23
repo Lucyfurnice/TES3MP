@@ -3,12 +3,17 @@
 
 #include "../Types.hpp"
 
+#include <functional>
+
+class Player;
+
 #define SETTINGSAPI \
     {"SetDifficulty",               SettingFunctions::SetDifficulty},\
     {"SetEnforcedLogLevel",         SettingFunctions::SetEnforcedLogLevel},\
     {"SetPhysicsFramerate",         SettingFunctions::SetPhysicsFramerate},\
     \
     {"SetConsoleAllowed",           SettingFunctions::SetConsoleAllowed},\
+    {"SetStaffRank",                SettingFunctions::SetStaffRank},\
     {"SetBedRestAllowed",           SettingFunctions::SetBedRestAllowed},\
     {"SetWildernessRestAllowed",    SettingFunctions::SetWildernessRestAllowed},\
     {"SetWaitAllowed",              SettingFunctions::SetWaitAllowed},\
@@ -78,6 +83,17 @@ public:
     * \return void
     */
     static void SetConsoleAllowed(unsigned short pid, bool state);
+
+    /**
+    * \brief Set the staff rank for a player.
+    *
+    * \param pid The player ID.
+    * \param staffRank The staff rank (0 = player, 1 = moderator, 2 = admin, 3 = owner).
+    * \return void
+    */
+    static void SetStaffRank(unsigned short pid, int staffRank);
+
+    static void SetSendSettingsHandler(std::function<void(Player&)> handler);
 
     /**
     * \brief Set whether resting in beds is allowed for a player.

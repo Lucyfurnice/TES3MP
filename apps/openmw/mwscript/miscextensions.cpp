@@ -74,6 +74,10 @@
 
 #include "../mwrender/animation.hpp"
 
+#ifndef TES3MP_HEADLESS
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
@@ -1390,6 +1394,10 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
+#ifndef TES3MP_HEADLESS
+                if (mwmp::Main::get().isAuthoritativeServer())
+                    return;
+#endif
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 world->goToJail();
             }

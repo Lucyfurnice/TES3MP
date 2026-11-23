@@ -692,6 +692,11 @@ namespace MWMechanics
             {
                 if (!target.isInCell())
                     return ESM::ActiveEffect::Flag_Invalid;
+#ifdef TES3MP_HEADLESS
+                Log(Debug::Info) << "[INFO] Applying summon effect=" << effect.mEffectId.serializeText()
+                                 << " target=" << target.getCellRef().getRefId().serializeText()
+                                 << " spell=" << spellParams.getSourceSpellId().serializeText();
+#endif
                 effect.mArg = summonCreature(effect.mEffectId, target, spellParams.getSourceSpellId());
             }
             else if (effect.mEffectId == ESM::MagicEffect::BoundGloves)
@@ -749,7 +754,18 @@ namespace MWMechanics
                         adjustDynamicStat(target, targetStat, -effect.mMagnitude,
                             targetStat == Stats::Fatigue && Settings::game().mUncappedDamageFatigue);
                         if (targetStat == Stats::Health)
+                        {
                             receivedMagicDamage = affectedHealth = true;
+#ifdef TES3MP_HEADLESS
+                            Log(Debug::Info) << "[INFO] Headless spell damage: caster="
+                                             << (caster.isEmpty() ? "<none>" : caster.getCellRef().getRefId().serializeText())
+                                             << " spellId=" << spellParams.getSourceSpellId().serializeText()
+                                             << " effect=" << effect.mEffectId.serializeText()
+                                             << " target=" << target.getCellRef().getRefId().serializeText()
+                                             << " dmg=" << effect.mMagnitude
+                                             << " hp=" << target.getClass().getCreatureStats(target).getHealth().getCurrent();
+#endif
+                        }
                     }
                 }
             }

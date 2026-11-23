@@ -95,6 +95,7 @@ namespace TES3MPHeadless
         bool mHasPortOverride = false;
         bool mAuthoritative = true;
         bool mProfileTicks = false;
+        bool mSmokeArrestCombat = false;
         double mTickRate = 60.0;
         uint64_t mMaxTicks = 0; // 0 = run indefinitely until signal/quit
         int mCellRadius = 1; // 1 = 3x3 exterior cell neighborhood per player

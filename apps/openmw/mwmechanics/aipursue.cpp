@@ -92,18 +92,33 @@ namespace MWMechanics
         // Set the target destination
         const osg::Vec3f dest = target.getRefData().getPosition().asVec3();
         const osg::Vec3f actorPos = actor.getRefData().getPosition().asVec3();
+        const float dist = (actorPos - dest).length();
+
+        if (dist > 2500.f && !MWBase::Environment::get().getWorld()->getLOS(actor, target))
+            return true;
 
         const float pathTolerance = 100.f;
 
         // check the true distance in case the target is far away in Z-direction
         bool reached = pathTo(actor, dest, duration, characterController.getSupportedMovementDirections(),
-                           pathTolerance, (actorPos - dest).length(), PathType::Partial)
+                           pathTolerance, dist, PathType::Full)
             && std::abs(dest.z() - actorPos.z()) < pathTolerance;
 
         if (reached)
         {
             if (!MWBase::Environment::get().getWorld()->getLOS(target, actor))
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "[AiPursue] Reached target but waiting for LOS: actor=%s target=%s",
+                    actor.getCellRef().getRefId().serializeText().c_str(),
+                    target.getCellRef().getRefId().serializeText().c_str());
                 return false;
+            }
+
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "[AiPursue] Reached target with LOS, triggering GM_Dialogue: actor=%s target=%s",
+                actor.getCellRef().getRefId().serializeText().c_str(),
+                target.getCellRef().getRefId().serializeText().c_str());
 
             /*
                 Start of tes3mp addition
@@ -112,11 +127,14 @@ namespace MWMechanics
 
                 Close the player's inventory or open container and cancel any drag and drops
             */
-            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "After being pursued by %s, diedSinceArrestAttempt is now false",
-                actor.getCellRef().getRefId().serializeText().c_str());
-            mwmp::Main::get().getLocalPlayer()->diedSinceArrestAttempt = false;
-            mwmp::Main::get().getLocalPlayer()->closeInventoryWindows();
+            if (mwmp::Main::get().getLocalPlayer())
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "After being pursued by %s, diedSinceArrestAttempt is now false",
+                    actor.getCellRef().getRefId().serializeText().c_str());
+                mwmp::Main::get().getLocalPlayer()->diedSinceArrestAttempt = false;
+                mwmp::Main::get().getLocalPlayer()->closeInventoryWindows();
+            }
             /*
                 End of tes3mp addition
             */

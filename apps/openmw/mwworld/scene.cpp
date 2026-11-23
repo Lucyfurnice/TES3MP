@@ -285,7 +285,12 @@ namespace
     {
         for (auto* cell : collection)
         {
+#ifdef TES3MP_HEADLESS
+            if (!cell->getCell()->isExterior())
+                continue;
+#else
             assert(cell->getCell()->isExterior());
+#endif
             if (cellIndex == cell->getCell()->getExteriorCellLocation())
                 return true;
         }
@@ -670,6 +675,10 @@ namespace MWWorld
 
     void Scene::playerMoved(const osg::Vec3f& pos)
     {
+#ifdef TES3MP_HEADLESS
+        (void)pos;
+        return;
+#else
         if (!mCurrentCell)
             return;
 
@@ -703,6 +712,7 @@ namespace MWWorld
                 }
             }
         }
+#endif
     }
 
     void Scene::requestChangeCellGrid(const osg::Vec3f& position, const osg::Vec2i& cell, bool changeEvent)
@@ -735,12 +745,14 @@ namespace MWWorld
         }
 #endif
 
+#ifndef TES3MP_HEADLESS
         const DetourNavigator::CellGridBounds cellGridBounds{
             .mCenter = osg::Vec2i(playerCellX, playerCellY),
             .mHalfSize = halfGridSize,
         };
 
         mNavigator.updateBounds(playerCellIndex.mWorldspace, cellGridBounds, pos, navigatorUpdateGuard.get());
+#endif
 
         mHalfGridSize = halfGridSize;
         mCurrentGridCenter = osg::Vec2i(playerCellX, playerCellY);
@@ -789,7 +801,9 @@ namespace MWWorld
             }
         }
 
+#ifndef TES3MP_HEADLESS
         mNavigator.update(pos, navigatorUpdateGuard.get());
+#endif
 
         navigatorUpdateGuard.reset();
 
@@ -1073,12 +1087,11 @@ namespace MWWorld
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
 
 #ifdef TES3MP_HEADLESS
+        mChangeCellGridRequest.reset();
         mEvictionTimers.erase(&cell);
         if (!isCellActive(cell))
         {
             loadingListener->setProgressRange(cell.count());
-            mNavigator.updateBounds(
-                cell.getCell()->getWorldSpace(), std::nullopt, position.asVec3(), navigatorUpdateGuard.get());
             mPagedRefs.clear();
             loadCell(cell, loadingListener, changeEvent, position.asVec3(), navigatorUpdateGuard.get());
         }
@@ -1649,16 +1662,26 @@ namespace MWWorld
             });
         };
 
+        CellStore* primaryOccupiedCell = nullptr;
         for (const CellResidencyKey& key : mLastOccupiedCellKeys)
         {
             if (key.mIsExterior)
             {
+                if (!primaryOccupiedCell)
+                {
+                    primaryOccupiedCell = &mWorld.getWorldModel().getExterior(
+                        ESM::ExteriorCellLocation(key.mX, key.mY, ESM::Cell::sDefaultWorldspaceId), true);
+                }
                 addExteriorNeighborhood(key.mX, key.mY, ESM::Cell::sDefaultWorldspaceId);
             }
             else
             {
                 if (CellStore* interior = mWorld.getWorldModel().findInterior(key.mName, true))
+                {
+                    if (!primaryOccupiedCell)
+                        primaryOccupiedCell = interior;
                     targetCells.insert(interior);
+                }
             }
         }
 
@@ -1711,6 +1734,9 @@ namespace MWWorld
                 cellsToUnload.push_back(cell);
         }
 
+        if (!occupiedCells.empty() && !targetCells.contains(mCurrentCell) && !targetCells.empty())
+            mCurrentCell = primaryOccupiedCell ? primaryOccupiedCell : *targetCells.begin();
+
         if (cellsToLoad.empty() && cellsToUnload.empty())
             return;
 
@@ -1743,6 +1769,9 @@ namespace MWWorld
             if (mCurrentCell == cell)
                 mCurrentCell = mActiveCells.empty() ? nullptr : *mActiveCells.begin();
         }
+
+        if (!occupiedCells.empty() && !targetCells.contains(mCurrentCell) && !targetCells.empty())
+            mCurrentCell = primaryOccupiedCell ? primaryOccupiedCell : *targetCells.begin();
     }
 
     void Scene::repopulateNavigatorWorldspace(

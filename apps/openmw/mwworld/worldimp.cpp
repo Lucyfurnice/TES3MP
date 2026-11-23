@@ -1529,6 +1529,7 @@ namespace MWWorld
             const auto& obs = mNavigatorObservers[idx];
             mNavigator->setUpdatesEnabled(true);
 
+            osg::Vec3f navPos = obs.mPosition;
             osg::Vec2i gridCenter(0, 0);
             if (obs.mIsExterior)
             {
@@ -1541,6 +1542,14 @@ namespace MWWorld
                     const ESM::ExteriorCellLocation loc
                         = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), obs.mWorldspace);
                     gridCenter = osg::Vec2i(loc.mX, loc.mY);
+                }
+                const float cellSize = ESM::getCellSize(obs.mWorldspace);
+                const ESM::ExteriorCellLocation posLoc
+                    = ESM::positionToExteriorCellLocation(navPos.x(), navPos.y(), obs.mWorldspace);
+                if (std::abs(posLoc.mX - gridCenter.x()) > 1 || std::abs(posLoc.mY - gridCenter.y()) > 1)
+                {
+                    navPos.x() = (gridCenter.x() + 0.5f) * cellSize;
+                    navPos.y() = (gridCenter.y() + 0.5f) * cellSize;
                 }
             }
 
@@ -1559,7 +1568,7 @@ namespace MWWorld
                         .mHalfSize = std::max(0, mWorldScene->getResidencyRadius()),
                     };
                 }
-                mNavigator->updateBounds(obs.mWorldspace, bounds, obs.mPosition, navigatorUpdateGuard.get());
+                mNavigator->updateBounds(obs.mWorldspace, bounds, navPos, navigatorUpdateGuard.get());
                 mLastNavWorldspace = obs.mWorldspace;
                 mLastNavGridCenter = gridCenter;
                 mLastNavIsExterior = obs.mIsExterior;
@@ -1573,7 +1582,7 @@ namespace MWWorld
                 mWorldScene->resetCellLoaded();
             }
 
-            mNavigator->update(obs.mPosition, navigatorUpdateGuard.get());
+            mNavigator->update(navPos, navigatorUpdateGuard.get());
             if (boundsChanged || cellLoaded)
             {
                 navigatorUpdateGuard.reset();
@@ -1831,10 +1840,7 @@ namespace MWWorld
     {
         updateNavigator();
         if (mWorldScene->hasCellLoaded())
-        {
-            mNavigator->wait(DetourNavigator::WaitConditionType::allJobsDone, nullptr);
             mWorldScene->resetCellLoaded();
-        }
     }
 #endif
 

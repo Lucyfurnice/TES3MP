@@ -40,6 +40,14 @@ void SettingFunctions::SetConsoleAllowed(unsigned short pid, bool state)
     player->consoleAllowed = state;
 }
 
+void SettingFunctions::SetStaffRank(unsigned short pid, int staffRank)
+{
+    Player *player;
+    GET_PLAYER(pid, player, );
+
+    player->staffRank = staffRank;
+}
+
 void SettingFunctions::SetBedRestAllowed(unsigned short pid, bool state)
 {
     Player *player;
@@ -92,10 +100,23 @@ void SettingFunctions::ClearVRSettingValues(unsigned short pid) {
     player->vrSettings.clear();
 }
 
+namespace
+{
+    std::function<void(Player&)> sSendSettingsHandler;
+}
+
+void SettingFunctions::SetSendSettingsHandler(std::function<void(Player&)> handler)
+{
+    sSendSettingsHandler = std::move(handler);
+}
+
 void SettingFunctions::SendSettings(unsigned short pid, bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
     Player *player;
     GET_PLAYER(pid, player,);
+
+    if (sSendSettingsHandler)
+        sSendSettingsHandler(*player);
 
     mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GAME_SETTINGS);
     packet->setPlayer(player);

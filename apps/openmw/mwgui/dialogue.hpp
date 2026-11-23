@@ -213,6 +213,7 @@ namespace MWGui
         std::vector<std::pair<std::string, int>> mChoices;
         std::vector<BookTypesetter::Style*> mChoiceStyles;
         bool mGoodbye;
+        float mChoiceOpenCooldown = 0.f;
 
         std::vector<std::unique_ptr<Link>> mLinks;
         std::unordered_map<std::string, std::unique_ptr<Link>> mTopicLinks;

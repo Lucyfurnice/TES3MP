@@ -349,12 +349,22 @@ set(HEADLESS_STUB_SOURCES
 )
 
 set(HEADLESS_ENGINE_SOURCES
+    headlessconfig.hpp
+    headlessconfig.cpp
     headlessengine.hpp
     headlessengine.cpp
     server/cellinstancemanager.hpp
     server/cellinstancemanager.cpp
+    server/headlesscombat.hpp
+    server/headlesscombat.cpp
+    server/headlessdialogue.hpp
+    server/headlessdialogue.cpp
+    server/headlessreplication.hpp
+    server/headlessreplication.cpp
     server/headlessserver.hpp
     server/headlessserver.cpp
+    server/playeranchormanager.hpp
+    server/playeranchormanager.cpp
     main.cpp
 )
 
@@ -373,7 +383,11 @@ set_target_properties(tes3mp-headless PROPERTIES
 target_compile_definitions(tes3mp-headless PRIVATE TES3MP_HEADLESS ENABLE_LUA)
 
 set_source_files_properties(
+    server/headlesscombat.cpp
+    server/headlessdialogue.cpp
+    server/headlessreplication.cpp
     server/headlessserver.cpp
+    server/playeranchormanager.cpp
     PROPERTIES
     INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/apps/openmw-mp;${LUA_INCLUDE_DIR};${CMAKE_SOURCE_DIR}/extern/LuaBridge"
 )

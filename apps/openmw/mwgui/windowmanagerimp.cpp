@@ -133,6 +133,7 @@
 #include <components/openmw-mp/TimedLog.hpp>
 #include "../mwmp/Main.hpp"
 #include "../mwmp/GUIController.hpp"
+#include "../mwmp/LocalPlayer.hpp"
 /*
     End of tes3mp addition
 */
@@ -2431,6 +2432,15 @@ namespace MWGui
     void WindowManager::toggleConsole()
     {
         bool visible = mConsole->isVisible();
+
+        if (!visible)
+        {
+            if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+            {
+                if (!localPlayer->consoleAllowed || localPlayer->staffRank <= 0)
+                    return;
+            }
+        }
 
         if (!visible && !mGuiModes.empty())
             mKeyboardNavigation->saveFocus(mGuiModes.back());

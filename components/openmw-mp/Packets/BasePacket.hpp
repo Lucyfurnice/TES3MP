@@ -127,14 +127,14 @@ namespace mwmp
         {
             if (write)
             {
-                std::string str = refId.getRefIdString();
+                std::string str = refId.serializeText();
                 return RW(str, write, compress, maxSize);
             }
             else
             {
                 std::string str;
                 bool res = RW(str, write, compress, maxSize);
-                refId = ESM::RefId::stringRefId(str);
+                refId = ESM::RefId::deserializeText(str);
                 return res;
             }
         }

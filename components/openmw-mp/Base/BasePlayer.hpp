@@ -227,6 +227,7 @@ namespace mwmp
         int enforcedLogLevel;
         float physicsFramerate = 60.0;
         bool consoleAllowed = false;
+        int staffRank = 0;
         bool bedRestAllowed = true;
         bool wildernessRestAllowed = true;
         bool waitAllowed = true;

@@ -230,7 +230,7 @@ void ObjectList::editContainers(MWWorld::CellStore* cellStore)
                 if (action == BaseObjectList::SET || action == BaseObjectList::ADD)
                 {
                     // Create a ManualRef to be able to set item charge
-                    MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), ESM::RefId::stringRefId(containerItem.refId), 1);
+                    MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), ESM::RefId::deserializeText(containerItem.refId), 1);
                     MWWorld::Ptr newPtr = ref.getPtr();
 
                     if (containerItem.count > 1)
@@ -243,7 +243,7 @@ void ObjectList::editContainers(MWWorld::CellStore* cellStore)
                         newPtr.getCellRef().setEnchantmentCharge(containerItem.enchantmentCharge);
 
                     if (!containerItem.soul.empty())
-                        newPtr.getCellRef().setSoul(ESM::RefId::stringRefId(containerItem.soul));
+                        newPtr.getCellRef().setSoul(ESM::RefId::deserializeText(containerItem.soul));
 
                     containerStore.add(newPtr, containerItem.count, true);
                 }
@@ -427,7 +427,7 @@ void ObjectList::placeObjects(MWWorld::CellStore* cellStore)
         {
             try
             {
-                MWWorld::ManualRef ref(world->getStore(), ESM::RefId::stringRefId(baseObject.refId), 1);
+                MWWorld::ManualRef ref(world->getStore(), ESM::RefId::deserializeText(baseObject.refId), 1);
 
                 MWWorld::Ptr newPtr = ref.getPtr();
 
@@ -441,7 +441,7 @@ void ObjectList::placeObjects(MWWorld::CellStore* cellStore)
                     newPtr.getCellRef().setEnchantmentCharge(baseObject.enchantmentCharge);
 
                 if (!baseObject.soul.empty())
-                    newPtr.getCellRef().setSoul(ESM::RefId::stringRefId(baseObject.soul));
+                    newPtr.getCellRef().setSoul(ESM::RefId::deserializeText(baseObject.soul));
 
                 if (newPtr.getClass().isGold(newPtr) && baseObject.goldValue > 1)
                     newPtr.getCellRef().setCount(baseObject.goldValue / std::max(1, newPtr.getClass().getValue(newPtr)));
@@ -490,7 +490,7 @@ void ObjectList::spawnObjects(MWWorld::CellStore* cellStore)
         // Only create this object if it doesn't already exist
         if (ptrFound.isEmpty())
         {
-            MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), ESM::RefId::stringRefId(baseObject.refId), 1);
+            MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), ESM::RefId::deserializeText(baseObject.refId), 1);
             MWWorld::Ptr newPtr = ref.getPtr();
 
             newPtr.getCellRef().setMpNum(baseObject.mpNum);
@@ -537,7 +537,7 @@ void ObjectList::spawnObjects(MWWorld::CellStore* cellStore)
                     LOG_APPEND(TimedLog::LOG_INFO, "-- adding active spell to master with id %s, effect %i, duration %f",
                         baseObject.summonSpellId.c_str(), baseObject.summonEffectId, baseObject.summonDuration);
 
-                    ESM::RefId summonSpellRefId = ESM::RefId::stringRefId(baseObject.summonSpellId);
+                    ESM::RefId summonSpellRefId = ESM::RefId::deserializeText(baseObject.summonSpellId);
                     auto& activeSpells = masterCreatureStats.getActiveSpells();
                     if (!activeSpells.isSpellActive(summonSpellRefId))
                         activeSpells.addSpell(summonSpellRefId, false, activeEffects, "", masterPtr.getCellRef().getRefNum(), MWWorld::TimeStamp());
@@ -547,6 +547,7 @@ void ObjectList::spawnObjects(MWWorld::CellStore* cellStore)
 
                     ESM::RefId summonEffectRefId = ESM::MagicEffect::indexToRefId(baseObject.summonEffectId);
                     auto& creatureMap = masterCreatureStats.getSummonedCreatureMap();
+                    creatureMap.erase(summonEffectRefId);
                     creatureMap.emplace(summonEffectRefId, creatureRefNum);
 
                     creatureStats.setFriendlyHits(0);

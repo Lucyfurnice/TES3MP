@@ -231,6 +231,17 @@ namespace MWWorld
         state.mNode->setNodeMask(MWRender::Mask_Effect);
         state.mNode->setPosition(pos);
         state.mNode->setAttitude(orient);
+        state.mEffectAnimationTime = std::make_shared<MWRender::EffectAnimationTime>();
+        mParent->addChild(state.mNode);
+
+#ifdef TES3MP_HEADLESS
+        (void)model;
+        (void)rotate;
+        (void)createLight;
+        (void)lightDiffuseColor;
+        (void)texture;
+        return;
+#endif
 
         osg::Group* attachTo = state.mNode;
 
@@ -425,8 +436,10 @@ namespace MWWorld
 
         const VFS::Path::Normalized model = ptr.getClass().getCorrectedModel(ptr);
         createModel(state, model, pos, orient, false, false, osg::Vec4(0, 0, 0, 0));
+#ifndef TES3MP_HEADLESS
         if (!ptr.getClass().getEnchantment(ptr).empty())
             SceneUtil::addEnchantedGlow(state.mNode, mResourceSystem, ptr.getClass().getEnchantmentColor(ptr));
+#endif
 
         state.mProjectileId = mPhysics->addProjectile(actor, pos, model, false);
         state.mToDelete = false;

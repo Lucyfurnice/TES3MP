@@ -211,7 +211,9 @@ void Networking::processActorPacket(RakNet::Packet *packet)
 
     if (!ActorProcessor::Process(*packet, baseActorList))
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Unhandled ActorPacket with identifier %i has arrived", packet->data[0]);
-    else if (actorSyncCallback && (packet->data[0] == ID_ACTOR_POSITION || packet->data[0] == ID_ACTOR_CELL_CHANGE))
+    else if (actorSyncCallback
+        && (packet->data[0] == ID_ACTOR_POSITION || packet->data[0] == ID_ACTOR_CELL_CHANGE
+            || packet->data[0] == ID_ACTOR_AI))
         actorSyncCallback(packet->data[0], baseActorList);
 }
 
@@ -621,6 +623,11 @@ void Networking::setPlayerCellChangeCallback(std::function<void(Player&)> callba
     playerCellChangeCallback = std::move(callback);
 }
 
+void Networking::setPlayerInventoryCallback(std::function<void(Player&)> callback)
+{
+    playerInventoryCallback = std::move(callback);
+}
+
 bool Networking::notifyPlayerAttack(Player& player)
 {
     return !playerAttackCallback || playerAttackCallback(player, player.attack);
@@ -639,6 +646,12 @@ bool Networking::notifyObjectAction(unsigned char packetId, Player& player, Base
 bool Networking::notifyPlayerPosition(Player& player)
 {
     return !playerPositionCallback || playerPositionCallback(player);
+}
+
+void Networking::notifyPlayerInventory(Player& player)
+{
+    if (playerInventoryCallback)
+        playerInventoryCallback(player);
 }
 
 void Networking::notifyPlayerCellChange(Player& player)

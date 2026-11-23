@@ -1250,8 +1250,13 @@ namespace MWMechanics
                 local player and local actors, relying on Cast packets to cause spells to be cast
                 for dedicated players and actors
             */
+#ifdef TES3MP_HEADLESS
+            if (mCanCast)
+                MWBase::Environment::get().getWorld()->castSpell(mPtr, mCastingScriptedSpell);
+#else
             if (mCanCast && (mPtr == getPlayer() || mwmp::Main::get().getCellController()->isLocalActor(mPtr)))
                 MWBase::Environment::get().getWorld()->castSpell(mPtr, mCastingScriptedSpell);
+#endif
             /*
                 End of tes3mp change (major)
             */
@@ -1326,7 +1331,14 @@ namespace MWMechanics
         float minAttackTime = mAnimation->getTextKeyTime(mCurrentWeapon + ": " + mAttackType + " min attack");
         float maxAttackTime = mAnimation->getTextKeyTime(mCurrentWeapon + ": " + mAttackType + " max attack");
         if (minAttackTime == -1.f || minAttackTime >= maxAttackTime)
+        {
+#ifdef TES3MP_HEADLESS
+            float complete = 0.f;
+            if (mAnimation->getInfo(mCurrentWeapon, &complete))
+                return std::clamp(complete, 0.f, 1.f);
+#endif
             return -1.f;
+        }
 
         return std::clamp(
             (mAnimation->getCurrentTime(mCurrentWeapon) - minAttackTime) / (maxAttackTime - minAttackTime), 0.f, 1.f);
@@ -1746,10 +1758,15 @@ namespace MWMechanics
                             {
                                 startKey = "start";
                                 stopKey = "stop";
+#ifdef TES3MP_HEADLESS
+                                if (mCanCast)
+                                    world->castSpell(mPtr, mCastingScriptedSpell);
+#else
                                 if (mCanCast
                                     && (mPtr == getPlayer() || mwmp::Main::get().getCellController()->isLocalActor(mPtr)))
                                     world->castSpell(mPtr,
                                         mCastingScriptedSpell); // No "release" text key to use, so cast immediately
+#endif
                                 mCastingScriptedSpell = false;
                                 mCanCast = false;
                             }
@@ -1785,7 +1802,8 @@ namespace MWMechanics
                     MWBase::LuaManager::ActorControls* actorControls
                         = MWBase::Environment::get().getLuaManager()->getActorControls(mPtr);
                     const bool aiInactive
-                        = actorControls->mDisableAI || !MWBase::Environment::get().getMechanicsManager()->isAIActive();
+                        = (actorControls && actorControls->mDisableAI)
+                        || !MWBase::Environment::get().getMechanicsManager()->isAIActive();
                     if (mWeaponType != ESM::Weapon::PickProbe && !isRandomAttackAnimation(mCurrentWeapon))
                     {
                         if (weapclass == ESM::WeaponType::Ranged || weapclass == ESM::WeaponType::Thrown)
@@ -1933,6 +1951,25 @@ namespace MWMechanics
             // Try playing the "follow" section if the attack animation ended naturally or didn't play at all.
             if (!animPlaying || (currentTime >= maxAttackTime && complete >= 1.f))
             {
+#ifdef TES3MP_HEADLESS
+                if (mReadyToHit)
+                {
+                    if (mAttackType == "shoot")
+                    {
+                        mAnimation->releaseArrow(mAttackStrength);
+                    }
+                    else
+                    {
+                        int attackType = ESM::Weapon::AT_Chop;
+                        if (mAttackType == "slash")
+                            attackType = ESM::Weapon::AT_Slash;
+                        else if (mAttackType == "thrust")
+                            attackType = ESM::Weapon::AT_Thrust;
+                        cls.hit(mPtr, mAttackStrength, attackType, mAttackVictim, mAttackHitPos, mAttackSuccess);
+                    }
+                    mReadyToHit = false;
+                }
+#endif
                 std::string start = "follow start";
                 std::string stop = "follow stop";
 
@@ -1965,6 +2002,14 @@ namespace MWMechanics
             if (mUpperBodyState == UpperBodyState::Equipping || mUpperBodyState == UpperBodyState::AttackEnd
                 || mUpperBodyState == UpperBodyState::Casting)
             {
+#ifdef TES3MP_HEADLESS
+                if (mUpperBodyState == UpperBodyState::Casting && mCanCast)
+                {
+                    world->castSpell(mPtr, mCastingScriptedSpell);
+                    mCastingScriptedSpell = false;
+                    mCanCast = false;
+                }
+#endif
                 if (ammunition && mWeaponType == ESM::Weapon::MarksmanCrossbow)
                     mAnimation->attachArrow();
 

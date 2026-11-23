@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERINVENTORY_HPP
 
 #include "../PlayerProcessor.hpp"
+#include <apps/openmw-mp/Networking.hpp>
 
 namespace mwmp
 {
@@ -17,6 +18,7 @@ namespace mwmp
         {
             DEBUG_PRINTF(strPacketID.c_str());
 
+            Networking::getPtr()->notifyPlayerInventory(player);
             Script::Call<Script::CallbackIdentity("OnPlayerInventory")>(player.getId());
         }
     };

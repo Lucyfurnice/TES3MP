@@ -38,7 +38,30 @@ namespace TES3MPHeadless
 
         void setNewGame(bool newgame) override {}
 
-        void pushGuiMode(MWGui::GuiMode mode, const MWWorld::Ptr& arg) override {}
+        void pushGuiMode(MWGui::GuiMode mode, const MWWorld::Ptr& arg) override
+        {
+            if (mode == MWGui::GM_Dialogue && !arg.isEmpty())
+                mPendingDialogueActors.push_back(arg);
+        }
+        std::vector<MWWorld::Ptr> consumePendingDialogueActors()
+        {
+            std::vector<MWWorld::Ptr> result;
+            result.swap(mPendingDialogueActors);
+            return result;
+        }
+        void setPlayerDialogueOpen(unsigned short pid, bool open)
+        {
+            if (open)
+                mPlayerGuiState[pid] = MWGui::GM_Dialogue;
+            else
+                mPlayerGuiState.erase(pid);
+        }
+        bool isPlayerDialogueOpen(unsigned short pid) const
+        {
+            auto it = mPlayerGuiState.find(pid);
+            return it != mPlayerGuiState.end() && it->second == MWGui::GM_Dialogue;
+        }
+        void clearPlayerGuiState(unsigned short pid) { mPlayerGuiState.erase(pid); }
         void pushGuiMode(MWGui::GuiMode mode) override {}
         void popGuiMode(bool forceExit = false) override {}
         void removeGuiMode(MWGui::GuiMode mode) override {}
@@ -248,6 +271,8 @@ namespace TES3MPHeadless
         MWWorld::Ptr mSelectedEnchantItem;
         MWWorld::Ptr mSelectedWeapon;
         bool mRestEnabled = true;
+        std::vector<MWWorld::Ptr> mPendingDialogueActors;
+        std::unordered_map<unsigned short, MWGui::GuiMode> mPlayerGuiState;
         Loading::Listener mLoadingListener;
         MWGui::TextColours mTextColours{};
         std::vector<MWGui::GuiMode> mGuiModeStack;

@@ -89,7 +89,8 @@ namespace mwmp
             ESCORT = 3,
             FOLLOW = 4,
             TRAVEL = 5,
-            WANDER = 6
+            WANDER = 6,
+            ARREST = 7
         };
 
         RakNet::RakNetGUID guid;

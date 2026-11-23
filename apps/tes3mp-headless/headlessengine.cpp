@@ -1,5 +1,6 @@
 #include "headlessengine.hpp"
 
+#include "headlessconfig.hpp"
 #include "server/headlessserver.hpp"
 #include "stubs/headlessinputmanager.hpp"
 #include "stubs/headlesssoundmanager.hpp"
@@ -116,6 +117,7 @@ namespace TES3MPHeadless
         serverCfg.mPortOverride = mConfig.mPort;
         serverCfg.mHasPortOverride = mConfig.mHasPortOverride;
         serverCfg.mAuthority.authoritativeMode = mConfig.mAuthoritative;
+        serverCfg.mSmokeArrestCombat = mConfig.mSmokeArrestCombat;
         mServer = std::make_unique<HeadlessServer>(mCfgMgr, *mWorld, std::move(serverCfg));
         mServer->init();
     }
@@ -161,7 +163,7 @@ namespace TES3MPHeadless
         mWorld = std::make_unique<MWWorld::World>(
             mResourceSystem.get(), 0, std::string(), mCfgMgr.getUserDataPath());
         mWorld->setNavMeshCacheDir(
-            HeadlessServer::resolveServerHome(mCfgMgr, mConfig.mServerCfgPath) / "data" / "navmesh");
+            resolveServerHome(mCfgMgr, mConfig.mServerCfgPath) / "data" / "navmesh");
         mEnvironment.setWorld(*mWorld);
         mEnvironment.setWorldModel(mWorld->getWorldModel());
         mEnvironment.setESMStore(mWorld->getStore());
@@ -285,16 +287,32 @@ namespace TES3MPHeadless
         }
     }
 
-    void HeadlessEngine::pollNetwork(unsigned int /*tickNumber*/)
+    void HeadlessEngine::pollNetwork(unsigned int tickNumber)
     {
-        if (mServer)
+        if (!mServer)
+            return;
+        try
+        {
             mServer->pollNetwork();
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "Error in headless pollNetwork tick " << tickNumber << ": " << e.what();
+        }
     }
 
-    void HeadlessEngine::broadcastNetworkState(unsigned int /*tickNumber*/, float dt)
+    void HeadlessEngine::broadcastNetworkState(unsigned int tickNumber, float dt)
     {
-        if (mServer)
+        if (!mServer)
+            return;
+        try
+        {
             mServer->broadcastNetworkState(dt);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "Error in headless broadcastNetworkState tick " << tickNumber << ": " << e.what();
+        }
     }
 
     bool HeadlessEngine::stepSimulation(unsigned int tickNumber, float dt, TickTimingsMs& timings)

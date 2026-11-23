@@ -267,7 +267,12 @@ namespace MWMechanics
             bool targetSidesWithPlayer
                 = (std::find(playerFollowersAndEscorters.begin(), playerFollowersAndEscorters.end(), target)
                     != playerFollowersAndEscorters.end());
-            if ((target == MWMechanics::getPlayer() || targetSidesWithPlayer)
+            const bool isPlayerTarget = (target == MWMechanics::getPlayer())
+#ifdef TES3MP_HEADLESS
+                || (!target.isEmpty() && target.getCellRef().getRefId() == ESM::RefId::stringRefId("player"))
+#endif
+                ;
+            if ((isPlayerTarget || targetSidesWithPlayer)
                 && (hitAttemptMatchesTarget(actor, target) || hitAttemptMatchesTarget(target, actor)))
                 forceFlee = true;
             else // Otherwise end combat
@@ -751,7 +756,12 @@ namespace MWMechanics
                 */
 
                 auto& prng = MWBase::Environment::get().getWorld()->getPrng();
+#ifdef TES3MP_HEADLESS
+                mStrength = distantCombat ? (0.75f + 0.25f * Misc::Rng::rollClosedProbability(prng))
+                                          : Misc::Rng::rollClosedProbability(prng);
+#else
                 mStrength = Misc::Rng::rollClosedProbability(prng);
+#endif
 
                 const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 

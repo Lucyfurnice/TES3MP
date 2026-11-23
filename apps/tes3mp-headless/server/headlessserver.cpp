@@ -1,5 +1,7 @@
 #include "headlessserver.hpp"
 
+#include "headlessconfig.hpp"
+
 #include <RakPeer.h>
 #include <RakPeerInterface.h>
 
@@ -13,30 +15,42 @@
 #include <Script/Functions/Objects.hpp>
 #include <Script/Functions/Positions.hpp>
 #include <Script/Functions/RecordsDynamic.hpp>
+#include <Script/Functions/Settings.hpp>
 #include <Script/LangLua/LangLua.hpp>
+#ifdef ENABLE_LUA
+#include <lua.hpp>
+#endif
 #include <Script/Script.hpp>
 #include <Utils.hpp>
 
 #include <apps/openmw/mwbase/world.hpp>
+#include <apps/openmw/mwbase/dialoguemanager.hpp>
 #include <apps/openmw/mwlua/worldbindings.hpp>
 #include <apps/openmw/mwmechanics/aiactivate.hpp>
 #include <apps/openmw/mwmechanics/aicombat.hpp>
 #include <apps/openmw/mwmechanics/aiescort.hpp>
 #include <apps/openmw/mwmechanics/aifollow.hpp>
+#include <apps/openmw/mwmechanics/aipursue.hpp>
 #include <apps/openmw/mwmechanics/aitravel.hpp>
 #include <apps/openmw/mwmechanics/aiwander.hpp>
 #include <apps/openmw/mwmechanics/combat.hpp>
 #include <apps/openmw/mwmechanics/creaturestats.hpp>
 #include <apps/openmw/mwmechanics/movement.hpp>
+#include <apps/openmw/mwmechanics/npcstats.hpp>
 #include <apps/openmw/mwmechanics/spellcasting.hpp>
+#include <apps/openmw/mwmechanics/summoning.hpp>
 #include <apps/openmw/mwmechanics/weapontype.hpp>
+#include <components/esm3/loadmgef.hpp>
+#include <components/openmw-mp/Packets/Object/ObjectPacket.hpp>
 #include <apps/openmw/mwmp/RecordHelper.hpp>
 #include <apps/openmw/mwphysics/collisiontype.hpp>
+#include <apps/openmw/mwphysics/physicssystem.hpp>
 #include <apps/openmw/mwphysics/raycasting.hpp>
 #include <apps/openmw/mwworld/action.hpp>
 #include <apps/openmw/mwworld/cellstore.hpp>
 #include <apps/openmw/mwworld/class.hpp>
 #include <apps/openmw/mwworld/containerstore.hpp>
+#include "../stubs/headlesswindowmanager.hpp"
 #include <apps/openmw/mwworld/doorstate.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/inventorystore.hpp>
@@ -125,166 +139,6 @@ namespace TES3MPHeadless
             return fallback;
         }
 
-        ESM::Cell cellFromStore(const MWWorld::CellStore& store)
-        {
-            ESM::Cell out;
-            out.blank();
-            if (store.isExterior())
-            {
-                out.mData.mFlags &= ~ESM::Cell::Interior;
-                out.mData.mX = store.getCell()->getGridX();
-                out.mData.mY = store.getCell()->getGridY();
-            }
-            else
-            {
-                out.mData.mFlags |= ESM::Cell::Interior;
-                out.mName = store.getCell()->getNameId();
-            }
-            return out;
-        }
-
-        unsigned int readMovementFlags(const MWMechanics::CreatureStats& stats)
-        {
-            unsigned int flags = 0;
-            for (const auto bit : { MWMechanics::CreatureStats::Flag_ForceRun,
-                     MWMechanics::CreatureStats::Flag_ForceSneak, MWMechanics::CreatureStats::Flag_Run,
-                     MWMechanics::CreatureStats::Flag_Sneak, MWMechanics::CreatureStats::Flag_ForceJump,
-                     MWMechanics::CreatureStats::Flag_ForceMoveJump })
-            {
-                if (stats.getMovementFlag(bit))
-                    flags |= static_cast<unsigned int>(bit);
-            }
-            return flags;
-        }
-
-        mwmp::BaseActor buildBaseActor(const MWWorld::Ptr& ptr, const MWWorld::World& world, const ESM::Cell& cell,
-            bool includePos, bool includeStats, bool includeDeath)
-        {
-            mwmp::BaseActor actor;
-            actor.refId = ptr.getCellRef().getRefId().getRefIdString();
-            actor.refNum = ptr.getCellRef().getRefNum().mIndex;
-            actor.mpNum = ptr.getCellRef().getMpNum();
-            actor.cell = cell;
-
-            const ESM::Position& pos = ptr.getRefData().getPosition();
-            actor.position = pos;
-            const MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
-            actor.direction.pos[0] = movement.mPosition[0];
-            actor.direction.pos[1] = movement.mPosition[1];
-            actor.direction.pos[2] = movement.mPosition[2];
-            actor.direction.rot[0] = movement.mRotation[0];
-            actor.direction.rot[1] = movement.mRotation[1];
-            actor.direction.rot[2] = movement.mRotation[2];
-            actor.hasPositionData = includePos;
-
-            const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
-            actor.movementFlags = readMovementFlags(stats);
-            actor.drawState = static_cast<char>(stats.getDrawState());
-            actor.isFlying = world.isFlying(ptr);
-
-            stats.getDynamic(0).writeState(actor.creatureStats.mDynamic[0]);
-            stats.getDynamic(1).writeState(actor.creatureStats.mDynamic[1]);
-            stats.getDynamic(2).writeState(actor.creatureStats.mDynamic[2]);
-            actor.creatureStats.mDead = stats.isDead();
-            actor.creatureStats.mDeathAnimationFinished = stats.isDeathAnimationFinished();
-            actor.hasStatsDynamicData = includeStats;
-
-            if (includeDeath)
-            {
-                actor.deathState = stats.isDeathAnimationFinished() ? 2 : 1;
-                actor.isInstantDeath = false;
-                actor.killer.isPlayer = false;
-                actor.killer.refNum = 0;
-                actor.killer.mpNum = 0;
-            }
-            return actor;
-        }
-
-        std::uint64_t hashCombine(std::uint64_t seed, std::uint64_t value)
-        {
-            seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-            return seed;
-        }
-
-        std::uint64_t hashEquipmentSlot(std::uint64_t h, const std::string& refId, int count)
-        {
-            h = hashCombine(h, std::hash<std::string>{}(refId));
-            return hashCombine(h, static_cast<std::uint64_t>(count));
-        }
-
-        std::uint64_t computeEquipmentHash(const MWWorld::Ptr& ptr)
-        {
-            std::uint64_t outHash = 1469598103934665603ULL;
-            if (!ptr.getClass().hasInventoryStore(ptr))
-                return outHash;
-
-            MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
-            for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
-            {
-                const MWWorld::ConstContainerStoreIterator it = inv.getSlot(slot);
-                if (it != inv.end())
-                    outHash = hashEquipmentSlot(outHash, it->getCellRef().getRefId().serializeText(), it->getCellRef().getCount());
-                else
-                    outHash = hashEquipmentSlot(outHash, std::string(), 0);
-            }
-            return outHash;
-        }
-
-        void populateActorEquipment(const MWWorld::Ptr& ptr, mwmp::BaseActor& actor, std::uint64_t& outHash)
-        {
-            outHash = 1469598103934665603ULL;
-            if (!ptr.getClass().hasInventoryStore(ptr))
-                return;
-
-            MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
-            for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
-            {
-                mwmp::Item& item = actor.equipmentItems[slot];
-                item = {};
-                const MWWorld::ConstContainerStoreIterator it = inv.getSlot(slot);
-                if (it != inv.end())
-                {
-                    item.refId = it->getCellRef().getRefId().serializeText();
-                    item.count = it->getCellRef().getCount();
-                    item.charge = it->getCellRef().getCharge();
-                    item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
-                }
-                outHash = hashEquipmentSlot(outHash, item.refId, item.count);
-            }
-        }
-
-        std::uint64_t computeContainerHash(MWWorld::ContainerStore& store)
-        {
-            std::uint64_t h = 1469598103934665603ULL;
-            for (MWWorld::ConstContainerStoreIterator it = store.cbegin(); it != store.cend(); ++it)
-            {
-                h = hashCombine(h, std::hash<std::string>{}(it->getCellRef().getRefId().serializeText()));
-                h = hashCombine(h, static_cast<std::uint64_t>(it->getCellRef().getCount()));
-            }
-            return h;
-        }
-
-        mwmp::BaseObject buildContainerObject(const MWWorld::Ptr& ptr, MWWorld::ContainerStore& store)
-        {
-            mwmp::BaseObject obj;
-            obj.refId = ptr.getCellRef().getRefId().serializeText();
-            obj.refNum = ptr.getCellRef().getRefNum().mIndex;
-            obj.mpNum = ptr.getCellRef().getMpNum();
-            obj.position = ptr.getRefData().getPosition();
-            for (MWWorld::ConstContainerStoreIterator it = store.cbegin(); it != store.cend(); ++it)
-            {
-                mwmp::ContainerItem ci;
-                ci.refId = it->getCellRef().getRefId().serializeText();
-                ci.count = it->getCellRef().getCount();
-                ci.charge = it->getCellRef().getCharge();
-                ci.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
-                ci.soul = it->getCellRef().getSoul().serializeText();
-                ci.actionCount = ci.count;
-                obj.containerItems.push_back(std::move(ci));
-            }
-            return obj;
-        }
-
         bool isMovableObjectType(const MWWorld::Ptr& ptr)
         {
             const unsigned int type = ptr.getType();
@@ -302,6 +156,10 @@ namespace TES3MPHeadless
         : mCfgMgr(cfgMgr)
         , mWorld(world)
         , mConfig(std::move(config))
+        , mAnchors(world)
+        , mCombat(world)
+        , mDialogue(world)
+        , mReplication(world)
     {
     }
 
@@ -310,95 +168,15 @@ namespace TES3MPHeadless
         shutdown();
     }
 
-    namespace
-    {
-        std::filesystem::path resolveConfigPathImpl(
-            Files::ConfigurationManager& cfgMgr, const std::filesystem::path& candidate)
-        {
-            if (candidate.empty())
-                return {};
-            if (std::filesystem::exists(candidate))
-                return candidate;
-            if (candidate.is_relative())
-            {
-                const std::filesystem::path inLocal = cfgMgr.getLocalPath() / candidate;
-                if (std::filesystem::exists(inLocal))
-                    return inLocal;
-                const std::filesystem::path inGlobal = cfgMgr.getGlobalPath() / candidate;
-                if (std::filesystem::exists(inGlobal))
-                    return inGlobal;
-            }
-            return {};
-        }
-
-        std::filesystem::path resolvePluginHomeImpl(
-            Files::ConfigurationManager& cfgMgr, const std::string& rawHome, const std::filesystem::path& cfgDir)
-        {
-            if (rawHome.empty())
-                return {};
-            const std::filesystem::path rawPath(rawHome);
-            if (std::filesystem::exists(rawPath))
-                return rawPath;
-            if (!cfgDir.empty())
-            {
-                const std::filesystem::path nearCfg = cfgDir / rawPath;
-                if (std::filesystem::exists(nearCfg))
-                    return nearCfg;
-            }
-            const std::filesystem::path nearLocal = cfgMgr.getLocalPath() / rawPath;
-            if (std::filesystem::exists(nearLocal))
-                return nearLocal;
-            return rawPath;
-        }
-    }
-
-    std::filesystem::path HeadlessServer::resolveServerHome(
-        Files::ConfigurationManager& cfgMgr, const std::filesystem::path& serverCfgPath)
-    {
-        Settings::CategorySettingValueMap serverSettings;
-        Settings::SettingsFileParser parser;
-
-        std::filesystem::path defaultCfg = resolveConfigPathImpl(
-            cfgMgr, serverCfgPath.empty() ? std::filesystem::path("tes3mp-server-default.cfg") : serverCfgPath);
-        if (defaultCfg.empty())
-            defaultCfg = resolveConfigPathImpl(cfgMgr, "tes3mp-server-default.cfg");
-
-        std::filesystem::path cfgDir;
-        try
-        {
-            if (!defaultCfg.empty())
-            {
-                parser.loadSettingsFile(defaultCfg, serverSettings, false, true);
-                cfgDir = defaultCfg.parent_path();
-                const std::filesystem::path siblingOverride = cfgDir / "tes3mp-server.cfg";
-                if (siblingOverride != defaultCfg && std::filesystem::exists(siblingOverride))
-                    parser.loadSettingsFile(siblingOverride, serverSettings, false, true);
-            }
-            const std::filesystem::path userCfg = cfgMgr.getUserConfigPath() / "tes3mp-server.cfg";
-            if (std::filesystem::exists(userCfg) && userCfg != defaultCfg)
-                parser.loadSettingsFile(userCfg, serverSettings, false, true);
-        }
-        catch (const std::exception& e)
-        {
-            Log(Debug::Warning) << "Failed to read server config while resolving server home: " << e.what();
-        }
-
-        const std::string rawPluginHome = getCfgString(serverSettings, "Plugins", "home", "./server");
-        std::filesystem::path home = resolvePluginHomeImpl(cfgMgr, rawPluginHome, cfgDir);
-        if (home.empty())
-            home = cfgMgr.getLocalPath() / "server";
-        return home;
-    }
-
     std::filesystem::path HeadlessServer::resolveConfigPath(const std::filesystem::path& candidate) const
     {
-        return resolveConfigPathImpl(mCfgMgr, candidate);
+        return resolveServerConfigPath(mCfgMgr, candidate);
     }
 
     std::filesystem::path HeadlessServer::resolvePluginHome(
         const std::string& rawHome, const std::filesystem::path& cfgDir) const
     {
-        return resolvePluginHomeImpl(mCfgMgr, rawHome, cfgDir);
+        return resolveServerPluginHome(mCfgMgr, rawHome, cfgDir);
     }
 
     void HeadlessServer::init()
@@ -466,6 +244,24 @@ namespace TES3MPHeadless
             while (!plugin.empty() && std::isspace(static_cast<unsigned char>(plugin.back())))
                 plugin.pop_back();
         }
+
+        const bool pvpEnabled = getCfgBool(serverSettings, "PvP", "enabled", true);
+        auto splitTrimCsv = [](const std::string& csv) {
+            std::vector<std::string> out = Utils::split(csv, ',');
+            for (std::string& entry : out)
+            {
+                while (!entry.empty() && std::isspace(static_cast<unsigned char>(entry.front())))
+                    entry.erase(entry.begin());
+                while (!entry.empty() && std::isspace(static_cast<unsigned char>(entry.back())))
+                    entry.pop_back();
+            }
+            out.erase(std::remove_if(out.begin(), out.end(), [](const std::string& s) { return s.empty(); }),
+                out.end());
+            return out;
+        };
+        mCombat.setPvpConfig(pvpEnabled,
+            splitTrimCsv(getCfgString(serverSettings, "PvP", "freeCells", "")),
+            splitTrimCsv(getCfgString(serverSettings, "PvP", "freeRegions", "")));
 
         std::string commitHash(Version::getCommitHash());
         commitHash.erase(std::remove(commitHash.begin(), commitHash.end(), '\r'), commitHash.end());
@@ -539,15 +335,38 @@ namespace TES3MPHeadless
         mNetworking->setServerPassword(password);
         mNetworking->setAuthoritativeServer(mConfig.mAuthority.authoritativeMode);
         mNetworking->setActorSyncCallback([this](unsigned char packetId, const mwmp::BaseActorList& list) {
-            if (!mConfig.mAuthority.authoritativeMode)
+            if (!mConfig.mAuthority.authoritativeMode || packetId == ID_ACTOR_AI)
                 mPendingActorSyncs.push_back(QueuedActorSync{ packetId, list });
         });
         mNetworking->setPlayerPositionCallback(
             [this](::Player& player) { return validatePlayerPosition(player); });
         mNetworking->setPlayerCellChangeCallback(
             [this](::Player& player) { handlePlayerCellChange(player); });
-        mNetworking->setPlayerAttackCallback(
-            [this](::Player& player, mwmp::Attack& attack) { return handlePlayerAttack(player, attack); });
+        mNetworking->setPlayerInventoryCallback([this](::Player& player) {
+            const unsigned short pid = player.getId();
+            int gold = (player.inventoryChanges.action == mwmp::InventoryChanges::SET) ? 0 : mDialogue.getPlayerGold(pid);
+            for (const mwmp::Item& item : player.inventoryChanges.items)
+            {
+                if (Misc::StringUtils::ciEqual(item.refId, "gold_001"))
+                {
+                    if (player.inventoryChanges.action == mwmp::InventoryChanges::REMOVE)
+                        gold = std::max(0, gold - item.count);
+                    else
+                        gold += std::max(0, item.count);
+                }
+            }
+            mDialogue.setPlayerGold(pid, gold);
+        });
+        mNetworking->setPlayerAttackCallback([this](::Player& player, mwmp::Attack& attack) {
+            if (mConfig.mAuthority.authoritativeMode && mConfig.mAuthority.validateCombat)
+            {
+                MWWorld::Ptr attackerPtr = mAnchors.getAnchorPtr(player.getId());
+                if (!attackerPtr.isEmpty())
+                    syncPlayerAnchorState(player, attackerPtr);
+            }
+            return mCombat.handlePlayerAttack(player, attack, mAnchors, mNetworking.get(),
+                mConfig.mAuthority.authoritativeMode && mConfig.mAuthority.validateCombat);
+        });
         mNetworking->setPlayerCastCallback(
             [this](::Player& player, mwmp::Cast& cast) { return handlePlayerCast(player, cast); });
         mNetworking->setObjectActionCallback(
@@ -601,8 +420,127 @@ namespace TES3MPHeadless
             });
         ActorFunctions::SetServerActorAIHandler(
             [this](const mwmp::BaseActorList& list) { handleServerActorAI(list); });
+        SettingFunctions::SetSendSettingsHandler([](::Player& player) {
+#ifdef ENABLE_LUA
+            if (lua_State* L = Script::GetPrimaryLuaState())
+            {
+                const int top = lua_gettop(L);
+                lua_getglobal(L, "Players");
+                if (lua_istable(L, -1))
+                {
+                    lua_pushinteger(L, player.getId());
+                    lua_gettable(L, -2);
+                    if (lua_istable(L, -1))
+                    {
+                        lua_getfield(L, -1, "data");
+                        if (lua_istable(L, -1))
+                        {
+                            lua_getfield(L, -1, "settings");
+                            if (lua_istable(L, -1))
+                            {
+                                lua_getfield(L, -1, "staffRank");
+                                if (lua_isnumber(L, -1))
+                                    player.staffRank = static_cast<int>(lua_tointeger(L, -1));
+                                lua_pop(L, 1);
+                            }
+                        }
+                    }
+                }
+                lua_settop(L, top);
+            }
+#endif
+            Log(Debug::Info) << "[INFO] Syncing ID_GAME_SETTINGS pid=" << player.getId()
+                             << " (" << player.npc.mName << ")"
+                             << " consoleAllowed=" << (player.consoleAllowed ? "true" : "false")
+                             << " staffRank=" << player.staffRank;
+        });
         MWLua::setHeadlessRecordCreatedCallback(
             [this](const std::type_info& type, const void* recordPtr) { handleLuaRecordCreated(type, recordPtr); });
+        MWMechanics::setHeadlessSummonCallback(
+            [this](const MWWorld::Ptr& placed, const MWWorld::Ptr& summoner, ESM::RefId effectId, ESM::RefId sourceId) {
+                if (!mNetworking || placed.isEmpty() || !placed.isInCell())
+                    return;
+
+                const int mpNum = mNetworking->incrementMpNum();
+                const_cast<MWWorld::Ptr&>(placed).getCellRef().setMpNum(mpNum);
+
+                mwmp::BaseObjectList spawnList;
+                spawnList.cell = placed.getCell()->getCell()->getEsm3();
+                spawnList.packetOrigin = mwmp::SERVER_SCRIPT;
+
+                mwmp::BaseObject obj;
+                obj.refId = placed.getCellRef().getRefId().getRefIdString();
+                obj.refNum = 0;
+                obj.mpNum = mpNum;
+                obj.position = placed.getRefData().getPosition();
+                obj.isSummon = true;
+                obj.summonEffectId = ESM::MagicEffect::refIdToIndex(effectId);
+                obj.summonSpellId = sourceId.serializeText();
+                obj.summonDuration = summoner.getClass()
+                                         .getCreatureStats(summoner)
+                                         .getActiveSpells()
+                                         .getEffectDuration(effectId, sourceId);
+
+                const std::optional<unsigned short> masterPid = mAnchors.resolvePidFromPtr(summoner);
+                if (masterPid.has_value())
+                {
+                    if (::Player* masterPlayer = Players::getPlayer(*masterPid))
+                    {
+                        obj.master.isPlayer = true;
+                        obj.master.guid = masterPlayer->guid;
+                    }
+                }
+                else if (!summoner.isEmpty())
+                {
+                    obj.master.isPlayer = false;
+                    obj.master.refNum = summoner.getCellRef().getRefNum().mIndex;
+                    obj.master.mpNum = summoner.getCellRef().getMpNum();
+                    obj.master.refId = summoner.getCellRef().getRefId().getRefIdString();
+                }
+
+                spawnList.baseObjects.push_back(std::move(obj));
+                if (mwmp::ObjectPacket* spawnPkt
+                    = mNetworking->getObjectPacketController()->GetPacket(ID_OBJECT_SPAWN))
+                {
+                    spawnPkt->setObjectList(&spawnList);
+                    spawnPkt->Send(true);
+                }
+
+                Log(Debug::Info) << "[INFO] Spawned summoned creature "
+                                 << placed.getCellRef().getRefId().serializeText()
+                                 << " mpNum=" << mpNum
+                                 << " cell=" << Utils::getCellDescription(spawnList.cell)
+                                 << " master="
+                                 << (masterPid.has_value() ? ("pid=" + std::to_string(*masterPid))
+                                                           : summoner.getCellRef().getRefId().serializeText())
+                                 << " spell=" << sourceId.serializeText()
+                                 << " duration=" << spawnList.baseObjects.front().summonDuration;
+            });
+        MWMechanics::setHeadlessUnsummonCallback([this](const MWWorld::Ptr& ptr) {
+            if (!mNetworking || ptr.isEmpty() || !ptr.isInCell())
+                return;
+
+            mwmp::BaseObjectList deleteList;
+            deleteList.cell = ptr.getCell()->getCell()->getEsm3();
+            deleteList.packetOrigin = mwmp::SERVER_SCRIPT;
+
+            mwmp::BaseObject obj;
+            obj.refId = ptr.getCellRef().getRefId().getRefIdString();
+            obj.mpNum = ptr.getCellRef().getMpNum();
+            obj.refNum = (obj.mpNum != 0) ? 0 : ptr.getCellRef().getRefNum().mIndex;
+            deleteList.baseObjects.push_back(std::move(obj));
+
+            if (mwmp::ObjectPacket* delPkt = mNetworking->getObjectPacketController()->GetPacket(ID_OBJECT_DELETE))
+            {
+                delPkt->setObjectList(&deleteList);
+                delPkt->Send(true);
+            }
+
+            Log(Debug::Info) << "[INFO] Despawned summoned creature "
+                             << ptr.getCellRef().getRefId().serializeText()
+                             << " mpNum=" << ptr.getCellRef().getMpNum()
+                             << " cell=" << Utils::getCellDescription(deleteList.cell);
+        });
 
         mNetworking->postInit();
         mBoundPort = mNetworking->getPort();
@@ -624,24 +562,19 @@ namespace TES3MPHeadless
         RecordsDynamicFunctions::SetRecordDynamicHandler(nullptr);
         ObjectFunctions::SetServerObjectEventHandler(nullptr);
         ActorFunctions::SetServerActorAIHandler(nullptr);
+        SettingFunctions::SetSendSettingsHandler(nullptr);
         MWLua::setHeadlessRecordCreatedCallback(nullptr);
+        MWMechanics::setHeadlessSummonCallback(nullptr);
+        MWMechanics::setHeadlessUnsummonCallback(nullptr);
         mCellInstances.clear();
 
-        for (auto& [pid, ptr] : mPlayerAnchors)
-        {
-            if (!ptr.isEmpty())
-                mWorld.deleteObject(ptr);
-        }
-        mPlayerAnchors.clear();
+        mAnchors.clear();
+        mCombat.clear();
+        mDialogue.clear();
+        mReplication.clear();
         mPlayerValidation.clear();
-        mActorSnapshots.clear();
-        mContainerSnapshots.clear();
         mPendingActorSyncs.clear();
         mBroadcastAccumulator = 0.0;
-        mAuthoritativeDeltaCount = 0;
-        mDeltaStats = {};
-        mStallBroadcastCycles = 0;
-        mContainerSweepCounter = 0;
 
         if (mNetworking)
         {
@@ -674,112 +607,6 @@ namespace TES3MPHeadless
         {
             LOG_QUIT();
             mLogInitialized = false;
-        }
-    }
-
-    MWWorld::CellStore* HeadlessServer::resolveCellStore(const ESM::Cell& cell) const
-    {
-        MWWorld::WorldModel& worldModel = mWorld.getWorldModel();
-        if (cell.isExterior())
-        {
-            return &worldModel.getExterior(
-                ESM::ExteriorCellLocation(cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId), true);
-        }
-        return worldModel.findInterior(cell.mName, true);
-    }
-
-    MWWorld::Ptr HeadlessServer::resolveTargetPtr(const mwmp::Target& target, const MWWorld::CellStore* hintCell) const
-    {
-        if (target.isPlayer)
-        {
-            if (::Player* targetPlayer = Players::getPlayer(target.guid))
-            {
-                auto it = mPlayerAnchors.find(targetPlayer->getId());
-                if (it != mPlayerAnchors.end())
-                    return it->second;
-            }
-            return MWWorld::Ptr();
-        }
-
-        if (hintCell)
-        {
-            MWWorld::Ptr found
-                = const_cast<MWWorld::CellStore*>(hintCell)->searchExact(target.refNum, target.mpNum, target.refId);
-            if (!found.isEmpty())
-                return found;
-        }
-
-        for (MWWorld::CellStore* activeCell : mWorld.getWorldScene().getActiveCells())
-        {
-            MWWorld::Ptr found = activeCell->searchExact(target.refNum, target.mpNum, target.refId);
-            if (!found.isEmpty())
-                return found;
-        }
-        return MWWorld::Ptr();
-    }
-
-    bool HeadlessServer::isPlayerAnchorPtr(const MWWorld::Ptr& ptr) const
-    {
-        if (ptr == mWorld.getPlayerPtr())
-            return true;
-        for (const auto& [pid, anchor] : mPlayerAnchors)
-        {
-            if (anchor == ptr)
-                return true;
-        }
-        return false;
-    }
-
-    void HeadlessServer::collectConnectedObservers(std::vector<ConnectedObserver>& outObservers) const
-    {
-        outObservers.clear();
-        TPlayers* players = Players::getPlayers();
-        if (!players)
-            return;
-
-        for (const auto& [guid, player] : *players)
-        {
-            if (!player || player->getLoadState() != Player::POSTLOADED)
-                continue;
-            // Never treat the default (0, 0) cell of a freshly connected player as real until the client
-            // confirms its cell via ID_PLAYER_CELL_CHANGE.
-            if (mPlayersWithKnownCell.find(player->getId()) == mPlayersWithKnownCell.end())
-                continue;
-
-            ConnectedObserver obs;
-            obs.mPlayer = player;
-            obs.mPosition = player->position.asVec3();
-            obs.mIsExterior = player->cell.isExterior();
-            obs.mCell = resolveCellStore(player->cell);
-            if (obs.mIsExterior)
-            {
-                const ESM::ExteriorCellLocation posCell
-                    = ESM::positionToExteriorCellLocation(obs.mPosition.x(), obs.mPosition.y(), ESM::Cell::sDefaultWorldspaceId);
-                if (posCell.mX != player->cell.mData.mX || posCell.mY != player->cell.mData.mY)
-                {
-                    bool usedAnchor = false;
-                    auto anchorIt = mPlayerAnchors.find(player->getId());
-                    if (anchorIt != mPlayerAnchors.end() && !anchorIt->second.isEmpty()
-                        && anchorIt->second.isInCell() && anchorIt->second.getCell()->isExterior())
-                    {
-                        const osg::Vec3f anchorPos = anchorIt->second.getRefData().getPosition().asVec3();
-                        const ESM::ExteriorCellLocation anchorCell = ESM::positionToExteriorCellLocation(
-                            anchorPos.x(), anchorPos.y(), ESM::Cell::sDefaultWorldspaceId);
-                        if (anchorCell.mX == player->cell.mData.mX && anchorCell.mY == player->cell.mData.mY)
-                        {
-                            obs.mPosition = anchorPos;
-                            usedAnchor = true;
-                        }
-                    }
-                    if (!usedAnchor)
-                    {
-                        const float cellSize = ESM::getCellSize(ESM::Cell::sDefaultWorldspaceId);
-                        obs.mPosition.x() = (player->cell.mData.mX + 0.5f) * cellSize;
-                        obs.mPosition.y() = (player->cell.mData.mY + 0.5f) * cellSize;
-                    }
-                }
-            }
-            outObservers.push_back(obs);
         }
     }
 
@@ -869,174 +696,70 @@ namespace TES3MPHeadless
         return true;
     }
 
-    bool HeadlessServer::handlePlayerAttack(::Player& player, mwmp::Attack& attack)
-    {
-        if (!mConfig.mAuthority.authoritativeMode || !mConfig.mAuthority.validateCombat)
-            return true;
-
-        auto anchorIt = mPlayerAnchors.find(player.getId());
-        if (anchorIt == mPlayerAnchors.end() || anchorIt->second.isEmpty())
-            return true;
-
-        MWWorld::Ptr attackerPtr = anchorIt->second;
-        MWWorld::Ptr victimPtr = resolveTargetPtr(attack.target, attackerPtr.isInCell() ? attackerPtr.getCell() : nullptr);
-
-        if (!attack.pressed && !attack.isHit)
-            return true;
-
-        if (victimPtr.isEmpty() || !victimPtr.getClass().isActor())
-        {
-            attack.isHit = false;
-            attack.damage = 0.f;
-            return true;
-        }
-
-        MWMechanics::CreatureStats& victimStats = victimPtr.getClass().getCreatureStats(victimPtr);
-        if (victimStats.isDead())
-        {
-            attack.isHit = false;
-            attack.damage = 0.f;
-            return false;
-        }
-
-        MWWorld::InventoryStore& inv = attackerPtr.getClass().getInventoryStore(attackerPtr);
-        MWWorld::ContainerStoreIterator weaponIt = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
-        MWWorld::Ptr weapon;
-        if (weaponIt != inv.end() && weaponIt->getType() == ESM::Weapon::sRecordId)
-            weapon = *weaponIt;
-
-        if (attack.type == mwmp::Attack::MELEE)
-        {
-            const float reach = MWMechanics::getMeleeWeaponReach(attackerPtr, weapon);
-            if (!MWMechanics::isInMeleeReach(attackerPtr, victimPtr, reach))
-            {
-                Log(Debug::Verbose) << "Authoritative combat rejected out-of-reach melee attack from "
-                                    << player.npc.mName;
-                attack.isHit = false;
-                attack.damage = 0.f;
-                return false;
-            }
-        }
-
-        const MWPhysics::RayCastingInterface* rayCasting = mWorld.getRayCasting();
-        if (rayCasting && !rayCasting->getLineOfSight(attackerPtr, victimPtr))
-        {
-            const osg::Vec3f from = attackerPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 96.f);
-            const osg::Vec3f to = victimPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 64.f);
-            const MWPhysics::RayCastingResult los = rayCasting->castRay(
-                from, to, { attackerPtr }, {}, MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap);
-            if (los.mHit && los.mHitObject != victimPtr)
-            {
-                Log(Debug::Verbose) << "Authoritative combat blocked obstructed attack from " << player.npc.mName;
-                attack.isHit = false;
-                attack.damage = 0.f;
-                return false;
-            }
-        }
-
-        const float strength = std::clamp(attack.attackStrength > 0.f ? attack.attackStrength : 0.75f, 0.f, 1.f);
-        MWMechanics::applyFatigueLoss(attackerPtr, weapon, strength);
-
-        const ESM::RefId skillId = !weapon.isEmpty() ? weapon.getClass().getEquipmentSkill(weapon) : ESM::Skill::HandToHand;
-        const float skillValue = attackerPtr.getClass().getSkill(attackerPtr, skillId);
-        const float hitChance = MWMechanics::getHitChance(attackerPtr, victimPtr, static_cast<int>(skillValue));
-        const bool hitSuccess = Misc::Rng::roll0to99(mWorld.getPrng()) < hitChance;
-
-        attack.success = hitSuccess;
-        attack.isHit = hitSuccess;
-        if (!hitSuccess)
-        {
-            attack.damage = 0.f;
-            return true;
-        }
-
-        float damage = 0.f;
-        bool healthDmg = true;
-        if (!weapon.isEmpty())
-        {
-            const auto& weapData = weapon.get<ESM::Weapon>()->mBase->mData;
-            const unsigned char* atkData = (attack.attackAnimation == "slash")
-                ? weapData.mSlash.data()
-                : (attack.attackAnimation == "thrust") ? weapData.mThrust.data() : weapData.mChop.data();
-            damage = atkData[0] + (atkData[1] - atkData[0]) * strength;
-            MWMechanics::adjustWeaponDamage(damage, weapon, attackerPtr);
-            MWMechanics::resistNormalWeapon(victimPtr, attackerPtr, weapon, damage);
-        }
-        else
-        {
-            MWMechanics::getHandToHandDamage(attackerPtr, victimPtr, damage, healthDmg, strength);
-        }
-
-        const float armor = std::max(0.f, victimPtr.getClass().getArmorRating(victimPtr, false));
-        if (armor > 0.f && damage > 0.f)
-        {
-            const float reduction = damage / (damage + armor);
-            damage *= std::max(0.25f, reduction);
-        }
-
-        if (MWMechanics::blockMeleeAttack(attackerPtr, victimPtr, weapon, damage, strength))
-        {
-            attack.block = true;
-            damage = 0.f;
-        }
-
-        attack.damage = damage;
-        const bool wasDead = victimStats.isDead();
-        const ESM::RefId weaponId = !weapon.isEmpty() ? weapon.getCellRef().getRefId() : ESM::RefId();
-        victimPtr.getClass().onHit(victimPtr, { { healthDmg ? "health" : "fatigue", damage } }, weaponId, attackerPtr,
-            true,
-            attack.type == mwmp::Attack::RANGED ? MWMechanics::DamageSourceType::Ranged
-                                                : MWMechanics::DamageSourceType::Melee);
-
-        if (attack.target.isPlayer)
-        {
-            if (::Player* victimPlayer = Players::getPlayer(attack.target.guid))
-            {
-                victimStats.getDynamic(0).writeState(victimPlayer->creatureStats.mDynamic[0]);
-                victimStats.getDynamic(2).writeState(victimPlayer->creatureStats.mDynamic[2]);
-                mwmp::PlayerPacket* statsPkt
-                    = mNetworking->getPlayerPacketController()->GetPacket(ID_PLAYER_STATS_DYNAMIC);
-                statsPkt->setPlayer(victimPlayer);
-                statsPkt->Send(victimPlayer->guid);
-                statsPkt->Send(true);
-
-                if (!wasDead && victimStats.isDead())
-                {
-                    victimPlayer->creatureStats.mDead = true;
-                    victimPlayer->deathState = 1;
-                    victimPlayer->killer.isPlayer = true;
-                    victimPlayer->killer.guid = player.guid;
-                    mwmp::PlayerPacket* deathPkt
-                        = mNetworking->getPlayerPacketController()->GetPacket(ID_PLAYER_DEATH);
-                    deathPkt->setPlayer(victimPlayer);
-                    deathPkt->Send(victimPlayer->guid);
-                    deathPkt->Send(true);
-                    Script::Call<Script::CallbackIdentity("OnPlayerDeath")>(victimPlayer->getId());
-                }
-            }
-        }
-
-        return true;
-    }
-
     bool HeadlessServer::handlePlayerCast(::Player& player, mwmp::Cast& cast)
     {
         if (!mConfig.mAuthority.authoritativeMode || !mConfig.mAuthority.validateCombat)
             return true;
 
-        auto anchorIt = mPlayerAnchors.find(player.getId());
-        if (anchorIt == mPlayerAnchors.end() || anchorIt->second.isEmpty())
+        MWWorld::Ptr casterPtr = mAnchors.getAnchorPtr(player.getId());
+        if (casterPtr.isEmpty())
             return true;
 
-        MWWorld::Ptr casterPtr = anchorIt->second;
-        MWWorld::Ptr targetPtr = resolveTargetPtr(cast.target, casterPtr.isInCell() ? casterPtr.getCell() : nullptr);
+        if (cast.pressed)
+            return true;
+
+        if (!cast.success)
+            return true;
+
+        syncPlayerAnchorState(player, casterPtr);
+        MWWorld::Ptr targetPtr
+            = mCombat.resolveTargetPtr(cast.target, casterPtr.isInCell() ? casterPtr.getCell() : nullptr, mAnchors);
 
         if (!cast.spellId.empty())
         {
             const ESM::Spell* spell
-                = mWorld.getStore().get<ESM::Spell>().search(ESM::RefId::stringRefId(cast.spellId));
+                = mWorld.getStore().get<ESM::Spell>().search(ESM::RefId::deserializeText(cast.spellId));
             if (!spell)
                 return false;
+
+            bool hasTouchOrTarget = false;
+            bool hasTouch = false;
+            bool hasHarmful = false;
+            const auto& mgefStore = mWorld.getStore().get<ESM::MagicEffect>();
+            for (const ESM::IndexedENAMstruct& eff : spell->mEffects.mList)
+            {
+                if (eff.mData.mRange == ESM::RT_Touch)
+                {
+                    hasTouch = true;
+                    hasTouchOrTarget = true;
+                }
+                else if (eff.mData.mRange == ESM::RT_Target)
+                {
+                    hasTouchOrTarget = true;
+                }
+                if (const ESM::MagicEffect* mgef = mgefStore.search(eff.mData.mEffectID))
+                {
+                    if (mgef->mData.mFlags & ESM::MagicEffect::Harmful)
+                        hasHarmful = true;
+                }
+            }
+
+            if (targetPtr.isEmpty() && hasTouch)
+            {
+                const float fCombatDistance = mWorld.getStore().get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                targetPtr = MWMechanics::getHitContact(casterPtr, fCombatDistance).first;
+            }
+
+            if (!targetPtr.isEmpty() && targetPtr != casterPtr && hasHarmful
+                && mAnchors.resolvePidFromPtr(targetPtr).has_value())
+            {
+                const MWWorld::CellStore* targetCell = targetPtr.isInCell() ? targetPtr.getCell() : nullptr;
+                if (!mCombat.isPvpAllowed(targetCell, targetPtr.getRefData().getPosition().asVec3()))
+                {
+                    cast.isHit = false;
+                    return false;
+                }
+            }
 
             if (!targetPtr.isEmpty() && targetPtr != casterPtr && mWorld.getRayCasting()
                 && !mWorld.getRayCasting()->getLineOfSight(casterPtr, targetPtr))
@@ -1046,9 +769,22 @@ namespace TES3MPHeadless
             }
 
             MWMechanics::CastSpell spellCast(casterPtr, targetPtr);
+            spellCast.mAlwaysSucceed = true;
             if (!targetPtr.isEmpty())
                 spellCast.mHitPosition = targetPtr.getRefData().getPosition().asVec3();
             cast.success = spellCast.cast(spell);
+
+            if (cast.success)
+                casterPtr.getClass().getCreatureStats(casterPtr).getActiveSpells().update(casterPtr, 0.016f);
+
+            if (hasTouchOrTarget)
+            {
+                Log(Debug::Info) << "[INFO] Headless player cast: caster=" << player.npc.mName
+                                 << " spellId=" << cast.spellId
+                                 << " target="
+                                 << (targetPtr.isEmpty() ? "<none>" : targetPtr.getCellRef().getRefId().serializeText())
+                                 << " success=" << (cast.success ? "true" : "false");
+            }
         }
 
         return true;
@@ -1056,13 +792,22 @@ namespace TES3MPHeadless
 
     bool HeadlessServer::handleObjectAction(unsigned char packetId, ::Player& player, mwmp::BaseObjectList& objectList)
     {
+        if (packetId == ID_CONSOLE_COMMAND && (!player.consoleAllowed || player.staffRank <= 0))
+        {
+            Log(Debug::Warning) << "Rejected ID_CONSOLE_COMMAND from unauthorized player "
+                                << player.npc.mName << " (pid=" << player.getId()
+                                << ", consoleAllowed=" << (player.consoleAllowed ? "true" : "false")
+                                << ", staffRank=" << player.staffRank << ")";
+            return false;
+        }
+
         if (!mConfig.mAuthority.authoritativeMode || !mConfig.mAuthority.validateObjects)
             return true;
 
         if (objectList.packetOrigin == mwmp::SERVER_SCRIPT)
             return true;
 
-        MWWorld::CellStore* cellStore = resolveCellStore(objectList.cell);
+        MWWorld::CellStore* cellStore = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, objectList.cell);
         if (!cellStore || !mWorld.getWorldScene().isCellActive(*cellStore))
         {
             Log(Debug::Warning) << "Rejected object packet " << static_cast<int>(packetId) << " from "
@@ -1071,9 +816,7 @@ namespace TES3MPHeadless
             return false;
         }
 
-        MWWorld::Ptr playerAnchor;
-        if (auto it = mPlayerAnchors.find(player.getId()); it != mPlayerAnchors.end())
-            playerAnchor = it->second;
+        MWWorld::Ptr playerAnchor = mAnchors.getAnchorPtr(player.getId());
 
         const float maxDistSq = mConfig.mAuthority.maxInteractDistance * mConfig.mAuthority.maxInteractDistance;
 
@@ -1088,8 +831,16 @@ namespace TES3MPHeadless
                 }
                 try
                 {
-                    MWWorld::ManualRef ref(mWorld.getStore(), ESM::RefId::stringRefId(obj.refId), std::max(1, obj.count));
-                    MWWorld::Ptr placed = mWorld.placeObject(ref.getPtr(), cellStore, obj.position);
+                    MWWorld::ManualRef ref(
+                        mWorld.getStore(), ESM::RefId::deserializeText(obj.refId), std::max(1, obj.count));
+                    MWWorld::Ptr newPtr = ref.getPtr();
+                    if (obj.charge > -1)
+                        newPtr.getCellRef().setCharge(obj.charge);
+                    if (obj.enchantmentCharge > -1)
+                        newPtr.getCellRef().setEnchantmentCharge(obj.enchantmentCharge);
+                    if (!obj.soul.empty())
+                        newPtr.getCellRef().setSoul(ESM::RefId::deserializeText(obj.soul));
+                    MWWorld::Ptr placed = mWorld.placeObject(newPtr, cellStore, obj.position);
                     if (!placed.isEmpty())
                     {
                         placed.getCellRef().setMpNum(obj.mpNum);
@@ -1174,6 +925,29 @@ namespace TES3MPHeadless
                 case ID_OBJECT_DELETE:
                     mWorld.deleteObject(targetPtr);
                     break;
+                case ID_OBJECT_DIALOGUE_CHOICE:
+                    Log(Debug::Info) << "[HeadlessServer] Received ID_OBJECT_DIALOGUE_CHOICE actor=" << obj.refId
+                                     << " type=" << static_cast<int>(obj.dialogueChoiceType)
+                                     << " topic='" << obj.topicId << "' pid=" << player.getId();
+                    if (!playerAnchor.isEmpty() && targetPtr.getClass().isActor())
+                    {
+                        const int prevBounty = player.npcStats.mBounty;
+                        if (mDialogue.executeDialogueChoice(targetPtr, playerAnchor, player.npcStats.mBounty,
+                                obj.dialogueChoiceType, obj.topicId, obj.refId, player.getId(), mAnchors, mCombat))
+                        {
+                            if (prevBounty > 0 && player.npcStats.mBounty == 0)
+                            {
+                                if (mwmp::PlayerPacket* bountyPkt
+                                    = mNetworking->getPlayerPacketController()->GetPacket(ID_PLAYER_BOUNTY))
+                                {
+                                    bountyPkt->setPlayer(&player);
+                                    bountyPkt->Send(player.guid);
+                                    bountyPkt->Send(true);
+                                }
+                            }
+                        }
+                    }
+                    break;
                 case ID_CONTAINER:
                     if (targetPtr.getType() == ESM::Container::sRecordId
                         || targetPtr.getClass().hasInventoryStore(targetPtr))
@@ -1186,7 +960,7 @@ namespace TES3MPHeadless
                         {
                             try
                             {
-                                const ESM::RefId itemId = ESM::RefId::stringRefId(item.refId);
+                                const ESM::RefId itemId = ESM::RefId::deserializeText(item.refId);
                                 if (objectList.action == mwmp::BaseObjectList::REMOVE)
                                     store.remove(itemId, std::max(1, item.count));
                                 else if (item.count > 0)
@@ -1227,40 +1001,112 @@ namespace TES3MPHeadless
             if (mPlayersWithKnownCell.find(pid) == mPlayersWithKnownCell.end())
                 continue;
 
-            MWWorld::CellStore* targetCell = resolveCellStore(player->cell);
+            MWWorld::CellStore* targetCell = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, player->cell);
             if (!targetCell || !mWorld.getWorldScene().isCellActive(*targetCell))
                 continue;
 
-            auto anchorIt = mPlayerAnchors.find(pid);
-            if (anchorIt == mPlayerAnchors.end() || anchorIt->second.isEmpty())
+            const bool isNewAnchor = mAnchors.getAnchorPtr(pid).isEmpty();
+            MWWorld::Ptr anchor = mAnchors.spawnOrMoveAnchor(pid, targetCell, player->position);
+            if (anchor.isEmpty())
+                continue;
+
+            MWMechanics::CreatureStats& anchorStats = anchor.getClass().getCreatureStats(anchor);
+            if (isNewAnchor)
             {
-                MWWorld::ManualRef ref(mWorld.getStore(), mWorld.getPlayerPtr(), 1);
-                MWWorld::Ptr anchor = mWorld.placeObject(ref.getPtr(), targetCell, player->position);
-                if (!anchor.isEmpty())
-                {
-                    mWorld.enable(anchor);
-                    anchor.getClass().getCreatureStats(anchor).getAiSequence().clear();
-                    mPlayerAnchors[pid] = anchor;
-                }
+                syncPlayerAnchorState(*player, anchor);
+                mCombat.setLastHealth(pid, anchorStats.getHealth().getCurrent());
+                mDialogue.setLastBounty(pid, player->npcStats.mBounty);
+                Log(Debug::Info) << "[INFO] Player anchor spawned: pid=" << pid
+                                 << " (" << player->npc.mName << ")"
+                                 << " cell=" << Utils::getCellDescription(player->cell)
+                                 << " activePlayers=" << activeIds.size();
+#ifdef _DEBUG
+                Log(Debug::Debug) << "[SmokeDiag] Player join anchor pid=" << pid
+                                  << " cell=" << Utils::getCellDescription(player->cell)
+                                  << " anchorEmpty=" << (anchor.isEmpty() ? "true" : "false")
+                                  << " worldPlayerSync=" << (activeIds.size() == 1 ? "true" : "false");
+#endif
             }
             else
             {
-                MWWorld::Ptr anchor = anchorIt->second;
-                if (anchor.getCell() != targetCell
-                    || (anchor.getRefData().getPosition().asVec3() - player->position.asVec3()).length2() > 0.0001f)
+                const float anchorHealth = anchorStats.getHealth().getCurrent();
+                if (mCombat.hasLastHealth(pid) && anchorHealth < mCombat.getLastHealth(pid) - 0.01f
+                    && !player->creatureStats.mDead)
                 {
-                    anchor = mWorld.moveObject(anchor, targetCell, player->position.asVec3());
-                    anchorIt->second = anchor;
+                    if (mCombat.dispatchAnchorHealthAndDeath(
+                            *player, anchor, anchorStats, mCombat.getLastHealth(pid), mNetworking.get()))
+                        mDialogue.setResistedArrest(pid, false);
                 }
-                mWorld.rotateObject(
-                    anchor, osg::Vec3f(player->position.rot[0], player->position.rot[1], player->position.rot[2]));
+                else
+                {
+                    if (anchor.getClass().isNpc())
+                    {
+                        const int anchorBounty = anchor.getClass().getNpcStats(anchor).getBounty();
+                        if (mDialogue.hasLastBounty(pid) && anchorBounty != mDialogue.getLastBounty(pid))
+                        {
+                            player->npcStats.mBounty = anchorBounty;
+                            if (mNetworking)
+                            {
+                                if (mwmp::PlayerPacket* bountyPkt
+                                    = mNetworking->getPlayerPacketController()->GetPacket(ID_PLAYER_BOUNTY))
+                                {
+                                    bountyPkt->setPlayer(player);
+                                    bountyPkt->Send(player->guid);
+                                    bountyPkt->Send(true);
+                                }
+                            }
+                        }
+                        else if (mDialogue.hasLastBounty(pid) && mDialogue.getLastBounty(pid) > 0
+                            && player->npcStats.mBounty == 0)
+                        {
+                            if (auto* winMgr
+                                = dynamic_cast<HeadlessWindowManager*>(&*MWBase::Environment::get().getWindowManager()))
+                                winMgr->setPlayerDialogueOpen(pid, false);
+                            mDialogue.setResistedArrest(pid, false);
+                            mCombat.calmGuardsForAnchor(anchor);
+                        }
+                        if (player->npcStats.mBounty <= 0)
+                            mDialogue.setResistedArrest(pid, false);
+                    }
+                    syncPlayerAnchorState(*player, anchor);
+                }
+                mCombat.setLastHealth(pid, anchorStats.getHealth().getCurrent());
+                mDialogue.setLastBounty(
+                    pid, anchor.getClass().isNpc() ? anchor.getClass().getNpcStats(anchor).getBounty() : 0);
+            }
+
+            // Keep dummy worldPlayer synced to the active player's cell/pos (including physics)
+            // so World::doPhysics / Scene::changeCellGrid never pulls it back to Pelagiad (0, -7).
+            if (activeIds.size() == 1)
+            {
+                MWWorld::Ptr worldPlayer = mWorld.getPlayerPtr();
+                osg::Vec3f syncPos = player->position.asVec3();
+                if (targetCell->isExterior())
+                {
+                    const ESM::RefId ws = targetCell->getCell()->getWorldSpace();
+                    const ESM::ExteriorCellLocation posLoc
+                        = ESM::positionToExteriorCellLocation(syncPos.x(), syncPos.y(), ws);
+                    const int gx = targetCell->getCell()->getGridX();
+                    const int gy = targetCell->getCell()->getGridY();
+                    if (posLoc.mX != gx || posLoc.mY != gy)
+                    {
+                        const float cellSize = ESM::getCellSize(ws);
+                        syncPos.x() = (gx + 0.5f) * cellSize;
+                        syncPos.y() = (gy + 0.5f) * cellSize;
+                    }
+                }
+                if (!worldPlayer.isEmpty()
+                    && (worldPlayer.getCell() != targetCell
+                        || (worldPlayer.getRefData().getPosition().asVec3() - syncPos).length2() > 1.0f))
+                {
+                    mWorld.moveObject(worldPlayer, targetCell, syncPos, true);
+                }
             }
         }
 
         for (auto it = mPlayersWithKnownCell.begin(); it != mPlayersWithKnownCell.end();)
         {
-            if (activeIds.find(*it) == activeIds.end()
-                && (!Players::getPlayers() || !Players::getPlayer(*it)))
+            if (activeIds.find(*it) == activeIds.end() && (!Players::getPlayers() || !Players::getPlayer(*it)))
             {
                 mCellInstances.removePlayerFromParty(*it);
                 it = mPlayersWithKnownCell.erase(it);
@@ -1269,26 +1115,161 @@ namespace TES3MPHeadless
                 ++it;
         }
 
-        for (auto it = mPlayerAnchors.begin(); it != mPlayerAnchors.end();)
+        std::vector<unsigned short> removedPids;
+        for (const auto& [pid, anchor] : mAnchors.getAnchors())
         {
-            if (activeIds.find(it->first) == activeIds.end())
+            (void)anchor;
+            if (activeIds.find(pid) == activeIds.end())
+                removedPids.push_back(pid);
+        }
+        for (unsigned short pid : removedPids)
+        {
+            Log(Debug::Info) << "[INFO] Player disconnected: pid=" << pid
+                             << " removing anchor, remainingPlayers=" << activeIds.size();
+#ifdef _DEBUG
+            Log(Debug::Debug) << "[SmokeDiag] Player disconnect pid=" << pid
+                              << " remainingPlayers=" << activeIds.size()
+                              << " worldPlayerSync=" << (activeIds.size() == 1 ? "true" : "false");
+#endif
+            mAnchors.removeAnchor(pid);
+            mCombat.clearPlayerHealth(pid);
+            mDialogue.clearPlayerState(pid);
+            mPlayerValidation.erase(pid);
+            if (auto* winMgr = dynamic_cast<HeadlessWindowManager*>(&*MWBase::Environment::get().getWindowManager()))
+                winMgr->clearPlayerGuiState(pid);
+        }
+    }
+
+    void HeadlessServer::syncPlayerAnchorState(const ::Player& player, MWWorld::Ptr& anchor)
+    {
+        if (anchor.isEmpty() || !anchor.getClass().isActor())
+            return;
+
+        MWMechanics::CreatureStats& stats = anchor.getClass().getCreatureStats(anchor);
+        if (stats.isDead() && !player.creatureStats.mDead)
+        {
+            mCombat.disengageActorsTargeting(anchor, false);
+            mAnchors.resurrectAnchor(anchor, player.npc.mName);
+        }
+        stats.setLevel(std::max(1, player.creatureStats.mLevel));
+        for (int i = 0; i < 3; ++i)
+        {
+            if (player.creatureStats.mDynamic[i].mBase > 0.f)
             {
-                if (!it->second.isEmpty())
-                    mWorld.deleteObject(it->second);
-                mPlayerValidation.erase(it->first);
-                it = mPlayerAnchors.erase(it);
+                MWMechanics::DynamicStat<float> dyn;
+                dyn.readState(player.creatureStats.mDynamic[i]);
+                stats.setDynamic(i, dyn);
             }
-            else
+        }
+        for (int i = 0; i < ESM::Attribute::Length; ++i)
+        {
+            if (player.creatureStats.mAttributes[i].mBase > 0)
             {
-                ++it;
+                MWMechanics::AttributeValue attr;
+                attr.readState(player.creatureStats.mAttributes[i]);
+                stats.setAttribute(ESM::Attribute::indexToRefId(i), attr);
+            }
+        }
+        if (anchor.getClass().isNpc())
+        {
+            MWMechanics::NpcStats& npcStats = anchor.getClass().getNpcStats(anchor);
+            npcStats.setBounty(player.npcStats.mBounty);
+            for (int i = 0; i < ESM::Skill::Length; ++i)
+            {
+                if (player.npcStats.mSkills[i].mBase > 0)
+                    npcStats.getSkill(ESM::Skill::indexToRefId(i)).readState(player.npcStats.mSkills[i]);
+            }
+        }
+
+        if (anchor.getClass().hasInventoryStore(anchor))
+        {
+            MWWorld::InventoryStore& inv = anchor.getClass().getInventoryStore(anchor);
+            for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
+            {
+                const std::string& desiredId = player.equipmentItems[slot].refId;
+                MWWorld::ContainerStoreIterator currentIt = inv.getSlot(slot);
+                if (desiredId.empty())
+                {
+                    if (currentIt != inv.end())
+                        inv.unequipSlot(slot);
+                    continue;
+                }
+                if (currentIt != inv.end()
+                    && Misc::StringUtils::ciEqual(currentIt->getCellRef().getRefId().serializeText(), desiredId))
+                {
+                    continue;
+                }
+                if (currentIt != inv.end())
+                    inv.unequipSlot(slot);
+
+                const ESM::RefId refId = ESM::RefId::deserializeText(desiredId);
+                MWWorld::Ptr itemPtr = inv.search(refId);
+                if (itemPtr.isEmpty())
+                {
+                    try
+                    {
+                        MWWorld::ContainerStoreIterator added = anchor.getClass().getContainerStore(anchor).add(
+                            refId, std::max(1, player.equipmentItems[slot].count), true);
+                        if (added != inv.end())
+                            itemPtr = *added;
+                    }
+                    catch (const std::exception&)
+                    {
+                        continue;
+                    }
+                }
+                if (!itemPtr.isEmpty())
+                {
+                    for (MWWorld::ContainerStoreIterator it = inv.begin(); it != inv.end(); ++it)
+                    {
+                        if (*it == itemPtr)
+                        {
+                            inv.equip(slot, it);
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
 
     void HeadlessServer::syncActorsToWorld()
     {
-        if (mPendingActorSyncs.empty() || mConfig.mAuthority.authoritativeMode)
+        if (mPendingActorSyncs.empty())
+            return;
+
+        if (mConfig.mAuthority.authoritativeMode)
         {
+            for (const QueuedActorSync& sync : mPendingActorSyncs)
+            {
+                if (sync.mPacketId != ID_ACTOR_AI)
+                    continue;
+                MWWorld::CellStore* sourceCell
+                    = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, sync.mActorList.cell);
+                if (!sourceCell)
+                    continue;
+                for (const mwmp::BaseActor& actor : sync.mActorList.baseActors)
+                {
+                    if (actor.aiAction != mwmp::BaseActorList::COMBAT || !actor.hasAiTarget || !actor.aiTarget.isPlayer)
+                        continue;
+                    ::Player* targetPlayer = Players::getPlayers() ? Players::getPlayer(actor.aiTarget.guid) : nullptr;
+                    if (!targetPlayer)
+                        continue;
+                    MWWorld::Ptr targetAnchor = mAnchors.getAnchorPtr(targetPlayer->getId());
+                    if (targetAnchor.isEmpty())
+                        continue;
+                    MWWorld::Ptr actorPtr = sourceCell->searchExact(actor.refNum, actor.mpNum, actor.refId, true);
+                    if (actorPtr.isEmpty() || !actorPtr.getClass().isActor())
+                        continue;
+                    if (auto* winMgr = dynamic_cast<HeadlessWindowManager*>(&*MWBase::Environment::get().getWindowManager()))
+                        winMgr->setPlayerDialogueOpen(targetPlayer->getId(), false);
+                    Log(Debug::Info) << "[HeadlessServer] Received ID_ACTOR_AI (COMBAT): actor=" << actor.refId
+                                     << " (" << actor.refNum << "-" << actor.mpNum << ") target pid="
+                                     << targetPlayer->getId();
+                    actorPtr.getClass().getCreatureStats(actorPtr).getAiSequence().stopPursuit();
+                    MWBase::Environment::get().getMechanicsManager()->startCombat(actorPtr, targetAnchor, nullptr);
+                }
+            }
             mPendingActorSyncs.clear();
             return;
         }
@@ -1299,8 +1280,9 @@ namespace TES3MPHeadless
             {
                 const ESM::Cell& targetEsmCell
                     = (sync.mPacketId == ID_ACTOR_CELL_CHANGE) ? actor.cell : sync.mActorList.cell;
-                MWWorld::CellStore* targetCell = resolveCellStore(targetEsmCell);
-                MWWorld::CellStore* sourceCell = resolveCellStore(sync.mActorList.cell);
+                MWWorld::CellStore* targetCell = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, targetEsmCell);
+                MWWorld::CellStore* sourceCell
+                    = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, sync.mActorList.cell);
                 MWWorld::Ptr actorPtr;
 
                 if (sourceCell)
@@ -1322,374 +1304,10 @@ namespace TES3MPHeadless
 
     void HeadlessServer::broadcastAuthoritativeActorDeltas()
     {
-        if (!mConfig.mAuthority.authoritativeMode || !mNetworking)
-            return;
-
-        // Pause actor delta broadcasting entirely while no client is connected.
-        std::vector<ConnectedObserver> connected;
-        collectConnectedObservers(connected);
-        if (connected.empty())
-            return;
-
-        mwmp::ActorPacketController* actorPackets = mNetworking->getActorPacketController();
-        if (!actorPackets)
-            return;
-
-        const float posThreshSq = mConfig.mAuthority.actorPosDeltaSq;
-        const float rotThresh = mConfig.mAuthority.actorRotDeltaRad;
-        const float statThresh = mConfig.mAuthority.actorStatDelta;
-        const float broadcastRadius = std::max(mConfig.mAuthority.actorSimulationRadius, mConfig.mAuthority.actorBroadcastRadius);
-        const float broadcastRadiusSq = broadcastRadius * broadcastRadius;
-        const std::size_t maxBatch = std::max<std::size_t>(1, mConfig.mAuthority.maxActorsPerBroadcast);
-        const bool sweepContainersThisCycle = ((mContainerSweepCounter++ % 20) == 0);
-        const std::uint64_t initialDeltaCount = mAuthoritativeDeltaCount;
-        std::size_t evaluatedActors = 0;
-
-        for (MWWorld::CellStore* cellStore : mWorld.getWorldScene().getActiveCells())
-        {
-            if (!cellStore)
-                continue;
-
-            ESM::Cell esmCell = cellFromStore(*cellStore);
-            // Legacy CellController state is optional: it only exists if a client sent ID_PLAYER_CELL_STATE.
-            Cell* serverCell = CellController::get()->findCell(&esmCell);
-
-            const bool isExterior = cellStore->isExterior();
-
-            // Candidate recipients for this cell, using live player positions.
-            std::vector<const ConnectedObserver*> candidates;
-            for (const ConnectedObserver& obs : connected)
-            {
-                if (isExterior ? obs.mIsExterior : (obs.mCell == cellStore))
-                    candidates.push_back(&obs);
-            }
-            if (serverCell)
-            {
-                // Also include anyone the legacy CellController knows has this cell loaded.
-                for (const ::Player* pl : serverCell->getPlayers())
-                {
-                    if (!pl)
-                        continue;
-                    for (const ConnectedObserver& obs : connected)
-                    {
-                        if (obs.mPlayer == pl
-                            && std::find(candidates.begin(), candidates.end(), &obs) == candidates.end())
-                            candidates.push_back(&obs);
-                    }
-                }
-            }
-            if (candidates.empty())
-                continue;
-
-            std::vector<bool> recipientInRange(candidates.size(), !isExterior);
-
-            mwmp::BaseActorList posBatch;
-            mwmp::BaseActorList animBatch;
-            mwmp::BaseActorList statsBatch;
-            mwmp::BaseActorList equipBatch;
-            mwmp::BaseActorList deathBatch;
-            posBatch.cell = animBatch.cell = statsBatch.cell = equipBatch.cell = deathBatch.cell = esmCell;
-
-            mwmp::BaseObjectList containerBatch;
-            containerBatch.cell = esmCell;
-            containerBatch.action = mwmp::BaseObjectList::SET;
-            containerBatch.containerSubAction = mwmp::BaseObjectList::NONE;
-            containerBatch.packetOrigin = mwmp::SERVER_SCRIPT;
-
-            cellStore->forEach([&](const MWWorld::Ptr& ptr) {
-                if (!ptr.getRefData().isEnabled() || isPlayerAnchorPtr(ptr))
-                    return true;
-
-                const bool isActor = ptr.getClass().isActor();
-                const bool isContainer = ptr.getType() == ESM::Container::sRecordId;
-                if (!isActor && !isContainer)
-                    return true;
-
-                const ESM::Position& esmPos = ptr.getRefData().getPosition();
-                const osg::Vec3f pos = esmPos.asVec3();
-                if (isExterior)
-                {
-                    bool inVisibilityRadius = false;
-                    for (std::size_t i = 0; i < candidates.size(); ++i)
-                    {
-                        if ((candidates[i]->mPosition - pos).length2() <= broadcastRadiusSq)
-                        {
-                            inVisibilityRadius = true;
-                            recipientInRange[i] = true;
-                        }
-                    }
-                    if (!inVisibilityRadius)
-                        return true;
-                }
-
-                const MWWorld::LiveCellRefBase* key = ptr.getBase();
-
-                if (isContainer)
-                {
-                    const bool isNewContainer = (mContainerSnapshots.find(key) == mContainerSnapshots.end());
-                    if ((isNewContainer || sweepContainersThisCycle) && containerBatch.baseObjects.size() < maxBatch)
-                    {
-                        MWWorld::ContainerStore& store = const_cast<MWWorld::Ptr&>(ptr).getClass().getContainerStore(ptr);
-                        if (!store.isResolved())
-                            store.resolve();
-                        const std::uint64_t cHash = computeContainerHash(store);
-                        auto [cIt, cInserted] = mContainerSnapshots.try_emplace(key, cHash);
-                        if (cInserted || cIt->second != cHash)
-                        {
-                            cIt->second = cHash;
-                            containerBatch.baseObjects.push_back(buildContainerObject(ptr, store));
-                            ++mAuthoritativeDeltaCount;
-                        }
-                    }
-                    return true;
-                }
-
-                ++evaluatedActors;
-
-                const osg::Vec3f rot = esmPos.asRotationVec3();
-                const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
-                const unsigned int moveFlags = readMovementFlags(stats);
-                const char drawState = static_cast<char>(stats.getDrawState());
-                const bool flying = mWorld.isFlying(ptr);
-                const float health = stats.getHealth().getCurrent();
-                const float magicka = stats.getMagicka().getCurrent();
-                const float fatigue = stats.getFatigue().getCurrent();
-                const bool dead = stats.isDead();
-
-                auto [it, inserted] = mActorSnapshots.try_emplace(key);
-                ActorSnapshot& snap = it->second;
-                if (inserted || !snap.mInitialized)
-                {
-                    if (ptr.getClass().hasInventoryStore(ptr))
-                    {
-                        MWWorld::InventoryStore& inv = const_cast<MWWorld::Ptr&>(ptr).getClass().getInventoryStore(ptr);
-                        inv.resolve();
-                        if (!dead)
-                            inv.autoEquip();
-                    }
-                    snap = ActorSnapshot{
-                        pos, rot, moveFlags, drawState, flying, health, magicka, fatigue, dead, dead, 0, false, false, true
-                    };
-                    if (ptr.getClass().hasInventoryStore(ptr) && equipBatch.baseActors.size() < maxBatch)
-                    {
-                        mwmp::BaseActor equipActor = buildBaseActor(ptr, mWorld, esmCell, false, false, false);
-                        populateActorEquipment(ptr, equipActor, snap.mEquipmentHash);
-                        snap.mEquipmentBroadcasted = true;
-                        equipBatch.baseActors.push_back(std::move(equipActor));
-                        ++mAuthoritativeDeltaCount;
-                        ++mDeltaStats.mEquip;
-                    }
-                    return true;
-                }
-
-                // Reset one-shot death flag only if the actor was explicitly resurrected.
-                if (!dead && snap.mDeathBroadcasted)
-                    snap.mDeathBroadcasted = false;
-
-                // Resolve and broadcast corpse inventory once dead.
-                if (dead && ptr.getClass().hasInventoryStore(ptr) && containerBatch.baseObjects.size() < maxBatch)
-                {
-                    MWWorld::ContainerStore& store = const_cast<MWWorld::Ptr&>(ptr).getClass().getContainerStore(ptr);
-                    store.resolve();
-                    const std::uint64_t cHash = computeContainerHash(store);
-                    auto [cIt, cInserted] = mContainerSnapshots.try_emplace(key, cHash);
-                    if (cInserted || cIt->second != cHash)
-                    {
-                        cIt->second = cHash;
-                        containerBatch.baseObjects.push_back(buildContainerObject(ptr, store));
-                        ++mAuthoritativeDeltaCount;
-                    }
-                }
-
-                const bool batchCapacityRemaining = posBatch.baseActors.size() < maxBatch
-                    && animBatch.baseActors.size() < maxBatch
-                    && statsBatch.baseActors.size() < maxBatch;
-
-                const float dx = pos.x() - snap.mPos.x();
-                const float dy = pos.y() - snap.mPos.y();
-                const float horizLenSq = dx * dx + dy * dy;
-                const bool isMovingNow = horizLenSq > 0.25f;
-                const bool stoppedMoving = snap.mWasMoving && !isMovingNow;
-
-                const bool posDirty = batchCapacityRemaining
-                    && ((pos - snap.mPos).length2() >= posThreshSq
-                        || std::abs(rot.z() - snap.mRot.z()) >= rotThresh
-                        || std::abs(rot.x() - snap.mRot.x()) >= rotThresh
-                        || stoppedMoving);
-                const bool animDirty = batchCapacityRemaining
-                    && (moveFlags != snap.mMovementFlags || drawState != snap.mDrawState || flying != snap.mIsFlying);
-                const bool statsDirty = batchCapacityRemaining
-                    && (std::abs(health - snap.mHealth) >= statThresh
-                        || std::abs(magicka - snap.mMagicka) >= statThresh
-                        || std::abs(fatigue - snap.mFatigue) >= statThresh
-                        || (dead != snap.mDead));
-                const bool deathDirty = (dead && !snap.mDeathBroadcasted);
-
-                bool equipDirty = false;
-                std::uint64_t currentEquipHash = snap.mEquipmentHash;
-                if (ptr.getClass().hasInventoryStore(ptr) && equipBatch.baseActors.size() < maxBatch)
-                {
-                    currentEquipHash = computeEquipmentHash(ptr);
-                    equipDirty = (!snap.mEquipmentBroadcasted || currentEquipHash != snap.mEquipmentHash);
-                }
-
-                if (!posDirty && !animDirty && !statsDirty && !deathDirty && !equipDirty)
-                    return true;
-
-                if (equipDirty)
-                {
-                    mwmp::BaseActor equipActor = buildBaseActor(ptr, mWorld, esmCell, false, false, false);
-                    populateActorEquipment(ptr, equipActor, snap.mEquipmentHash);
-                    equipBatch.baseActors.push_back(std::move(equipActor));
-                    snap.mEquipmentBroadcasted = true;
-                    ++mAuthoritativeDeltaCount;
-                    ++mDeltaStats.mEquip;
-                }
-
-                if (!posDirty && !animDirty && !statsDirty && !deathDirty)
-                    return true;
-
-                mwmp::BaseActor baseActor
-                    = buildBaseActor(ptr, mWorld, esmCell, posDirty, statsDirty, deathDirty);
-
-                if (posDirty)
-                {
-                    if (isMovingNow)
-                    {
-                        const float invLen = 1.0f / std::sqrt(horizLenSq);
-                        const float nx = dx * invLen;
-                        const float ny = dy * invLen;
-                        const float sinZ = std::sin(rot.z());
-                        const float cosZ = std::cos(rot.z());
-                        baseActor.direction.pos[0] = nx * cosZ - ny * sinZ;
-                        baseActor.direction.pos[1] = nx * sinZ + ny * cosZ;
-                    }
-                    else
-                    {
-                        baseActor.direction.pos[0] = 0.0f;
-                        baseActor.direction.pos[1] = 0.0f;
-                        baseActor.direction.pos[2] = 0.0f;
-                    }
-                    posBatch.baseActors.push_back(baseActor);
-                    snap.mPos = pos;
-                    snap.mRot = rot;
-                    snap.mWasMoving = isMovingNow;
-                    ++mAuthoritativeDeltaCount;
-                    ++mDeltaStats.mPos;
-                }
-                if (animDirty)
-                {
-                    animBatch.baseActors.push_back(baseActor);
-                    snap.mMovementFlags = moveFlags;
-                    snap.mDrawState = drawState;
-                    snap.mIsFlying = flying;
-                    ++mAuthoritativeDeltaCount;
-                    ++mDeltaStats.mAnim;
-                }
-                if (statsDirty)
-                {
-                    statsBatch.baseActors.push_back(baseActor);
-                    snap.mHealth = health;
-                    snap.mMagicka = magicka;
-                    snap.mFatigue = fatigue;
-                    snap.mDead = dead;
-                    ++mAuthoritativeDeltaCount;
-                    ++mDeltaStats.mStats;
-                }
-                if (deathDirty)
-                {
-                    deathBatch.baseActors.push_back(baseActor);
-                    snap.mDead = true;
-                    snap.mDeathBroadcasted = true;
-                    ++mAuthoritativeDeltaCount;
-                }
-                return true;
-            });
-
-            if (posBatch.baseActors.empty() && animBatch.baseActors.empty() && statsBatch.baseActors.empty()
-                && equipBatch.baseActors.empty() && deathBatch.baseActors.empty()
-                && containerBatch.baseObjects.empty())
-            {
-                continue;
-            }
-
-            const RakNet::RakNetGUID serverGuid = mPeer ? mPeer->GetMyGUID() : RakNet::RakNetGUID();
-
-            std::vector<::Player*> recipients;
-            for (std::size_t i = 0; i < candidates.size(); ++i)
-            {
-                ::Player* pl = candidates[i]->mPlayer;
-                if (recipientInRange[i] && pl && !pl->npc.mName.empty())
-                    recipients.push_back(pl);
-            }
-
-            auto sendToRecipients = [&](unsigned char packetId, mwmp::BaseActorList& batch) {
-                batch.guid = serverGuid;
-                mwmp::ActorPacket* pkt = actorPackets->GetPacket(packetId);
-                for (::Player* pl : recipients)
-                {
-                    pkt->setActorList(&batch);
-                    pkt->Send(pl->guid);
-                }
-            };
-
-            auto dispatchActorBatch = [&](unsigned char packetId, mwmp::BaseActorList& batch, bool updateCellStore) {
-                if (batch.baseActors.empty())
-                    return;
-                batch.count = static_cast<unsigned int>(batch.baseActors.size());
-                if (serverCell && updateCellStore)
-                    serverCell->readActorList(packetId, &batch);
-                sendToRecipients(packetId, batch);
-            };
-
-            dispatchActorBatch(ID_ACTOR_POSITION, posBatch, true);
-            dispatchActorBatch(ID_ACTOR_ANIM_FLAGS, animBatch, false);
-            dispatchActorBatch(ID_ACTOR_STATS_DYNAMIC, statsBatch, true);
-            dispatchActorBatch(ID_ACTOR_EQUIPMENT, equipBatch, true);
-            if (!containerBatch.baseObjects.empty())
-            {
-                if (mwmp::ObjectPacket* objPkt = mNetworking->getObjectPacketController()->GetPacket(ID_CONTAINER))
-                {
-                    containerBatch.guid = serverGuid;
-                    for (::Player* pl : recipients)
-                    {
-                        objPkt->setObjectList(&containerBatch);
-                        objPkt->Send(pl->guid);
-                    }
-                }
-            }
-            if (!deathBatch.baseActors.empty())
-            {
-                deathBatch.count = static_cast<unsigned int>(deathBatch.baseActors.size());
-                sendToRecipients(ID_ACTOR_DEATH, deathBatch);
-                ::Player* observer = !recipients.empty() ? recipients.front() : candidates.front()->mPlayer;
-                if (observer)
-                {
-                    Script::Call<Script::CallbackIdentity("OnActorDeath")>(
-                        observer->getId(), Utils::getCellDescription(esmCell).c_str());
-                }
-            }
-        }
-
-        if (mAuthoritativeDeltaCount == initialDeltaCount)
-        {
-            if (++mStallBroadcastCycles >= 60)
-            {
-                mStallBroadcastCycles = 0;
-                const ConnectedObserver& obs0 = connected.front();
-                const std::string obsCell = obs0.mPlayer ? Utils::getCellDescription(obs0.mPlayer->cell) : "<none>";
-                Log(Debug::Warning) << "Authoritative broadcast stall (3s, players=" << connected.size()
-                                    << ", anchors=" << mPlayerAnchors.size()
-                                    << ", anchor0=" << obsCell << " (" << obs0.mPosition.x() << ", "
-                                    << obs0.mPosition.y() << ", " << obs0.mPosition.z() << ")"
-                                    << ", activeCells=" << mWorld.getWorldScene().getActiveCells().size()
-                                    << ", evaluatedActors=" << evaluatedActors << ")";
-            }
-        }
-        else
-        {
-            mStallBroadcastCycles = 0;
-        }
+        mReplication.broadcastAuthoritativeActorDeltas(
+            mPlayersWithKnownCell, mConfig.mAuthority, mPeer, mNetworking.get(), mAnchors);
+        if (mConfig.mAuthority.authoritativeMode)
+            mDialogue.processPendingArrests(mPeer, mNetworking.get(), mAnchors);
     }
 
     void HeadlessServer::pollNetwork()
@@ -1702,8 +1320,128 @@ namespace TES3MPHeadless
         syncActorsToWorld();
     }
 
+    void HeadlessServer::stepSmokeArrestCombat()
+    {
+        if (!mSmokeInitialized)
+        {
+            mSmokeInitialized = true;
+            for (MWWorld::CellStore* cellStore : mWorld.getWorldScene().getActiveCells())
+            {
+                if (!cellStore || !cellStore->getCell()->isExterior())
+                    continue;
+                if (cellStore->getCell()->getGridX() != -3 || cellStore->getCell()->getGridY() != -2)
+                    continue;
+                cellStore->forEach([&](const MWWorld::Ptr& ptr) {
+                    if (!mSmokeGuard.isEmpty() || ptr.isEmpty() || !ptr.getClass().isActor())
+                        return true;
+                    if (ptr.getClass().isClass(ptr, "guard"))
+                    {
+                        mSmokeGuard = ptr;
+                        return false;
+                    }
+                    return true;
+                });
+                if (!mSmokeGuard.isEmpty())
+                    break;
+            }
+
+            if (!mSmokeGuard.isEmpty())
+            {
+                ESM::Position anchorPos = mSmokeGuard.getRefData().getPosition();
+                const float yaw = anchorPos.rot[2];
+                anchorPos.pos[0] += std::sin(yaw) * 120.f;
+                anchorPos.pos[1] += std::cos(yaw) * 120.f;
+                MWWorld::ManualRef ref(mWorld.getStore(), mWorld.getPlayerPtr(), 1);
+                mSmokeAnchor = mWorld.placeObject(ref.getPtr(), mSmokeGuard.getCell(), anchorPos);
+                if (!mSmokeAnchor.isEmpty())
+                {
+                    mWorld.enable(mSmokeAnchor);
+                    if (MWPhysics::PhysicsSystem* phys = mWorld.getPhysicsSystem())
+                    {
+                        if (!phys->getActor(mSmokeAnchor))
+                            phys->addActor(mSmokeAnchor, mSmokeAnchor.getClass().getCorrectedModel(mSmokeAnchor));
+                    }
+                    mSmokeAnchor.getClass().getCreatureStats(mSmokeAnchor).getAiSequence().clear();
+                    MWMechanics::DynamicStat<float> hp(100.f);
+                    mSmokeAnchor.getClass().getCreatureStats(mSmokeAnchor).setHealth(hp);
+                    mSmokeAnchor.getClass().getNpcStats(mSmokeAnchor).setBounty(mSmokeBounty);
+                    mSmokeGuard.getClass().getCreatureStats(mSmokeGuard).getAiSequence().stack(
+                        MWMechanics::AiPursue(mSmokeAnchor), mSmokeGuard);
+                    Log(Debug::Info) << "[SmokeTest] Spawned anchor in cell='"
+                                     << mSmokeGuard.getCell()->getCell()->getDescription()
+                                     << "' near guard=" << mSmokeGuard.getCellRef().getRefId()
+                                     << " guardPos=(" << mSmokeGuard.getRefData().getPosition().pos[0] << ", "
+                                     << mSmokeGuard.getRefData().getPosition().pos[1] << ", "
+                                     << mSmokeGuard.getRefData().getPosition().pos[2] << ")"
+                                     << " anchorPos=(" << anchorPos.pos[0] << ", " << anchorPos.pos[1] << ", "
+                                     << anchorPos.pos[2] << ") bounty=" << mSmokeBounty;
+                }
+            }
+            return;
+        }
+
+        if (mSmokeGuard.isEmpty() || mSmokeAnchor.isEmpty())
+            return;
+
+        static int sSmokeTick = 0;
+        if ((++sSmokeTick % 30) == 0)
+        {
+            const osg::Vec3f gp = mSmokeGuard.getRefData().getPosition().asVec3();
+            const osg::Vec3f ap = mSmokeAnchor.getRefData().getPosition().asVec3();
+            const auto& seq = mSmokeGuard.getClass().getCreatureStats(mSmokeGuard).getAiSequence();
+            Log(Debug::Info) << "[SmokeTest] tick=" << sSmokeTick << " dist=" << (gp - ap).length()
+                             << " aiType=" << static_cast<int>(seq.getTypeId())
+                             << " inPursuit=" << seq.isInPursuit()
+                             << " inCombat=" << seq.isInCombat(mSmokeAnchor);
+        }
+
+        if (!mSmokeArrestTriggered)
+        {
+            if (auto* winMgr = dynamic_cast<HeadlessWindowManager*>(&*MWBase::Environment::get().getWindowManager()))
+            {
+                for (const MWWorld::Ptr& ptr : winMgr->consumePendingDialogueActors())
+                {
+                    if (ptr == mSmokeGuard)
+                    {
+                        mSmokeArrestTriggered = true;
+                        Log(Debug::Info) << "[SmokeTest] AiPursue reached anchor and triggered GM_Dialogue (ID_ACTOR_AI ARREST)";
+                        mDialogue.executeDialogueChoice(mSmokeGuard, mSmokeAnchor, mSmokeBounty,
+                            mwmp::DialogueChoiceType::TOPIC, "__CHOICE__:3",
+                            mSmokeGuard.getCellRef().getRefId().serializeText(), 9999, mAnchors, mCombat);
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            MWMechanics::CreatureStats& guardStats = mSmokeGuard.getClass().getCreatureStats(mSmokeGuard);
+            if (!mSmokeWeaponDrawn && guardStats.getDrawState() == MWMechanics::DrawState::Weapon)
+            {
+                mSmokeWeaponDrawn = true;
+                Log(Debug::Info) << "[SmokeTest] Guard drew weapon (DrawState::Weapon) in AiCombat";
+            }
+            const bool attacking = guardStats.getAttackingOrSpell();
+            if (attacking != mSmokeLastAttacking)
+            {
+                mSmokeLastAttacking = attacking;
+                Log(Debug::Info) << "[SmokeTest] Guard attacking=" << (attacking ? 1 : 0) << " (ID_ACTOR_ATTACK)";
+            }
+            const float hp = mSmokeAnchor.getClass().getCreatureStats(mSmokeAnchor).getHealth().getCurrent();
+            if (!mSmokeDamageObserved && hp < 100.f)
+            {
+                mSmokeDamageObserved = true;
+                Log(Debug::Info) << "[SmokeTest] Player anchor took damage: health=" << hp
+                                 << "/100 (ID_PLAYER_STATS_DYNAMIC)";
+            }
+        }
+    }
+
     void HeadlessServer::broadcastNetworkState(float dt)
     {
+        if (mConfig.mSmokeArrestCombat)
+            stepSmokeArrestCombat();
+
         if (!mNetworking)
             return;
 
@@ -1748,7 +1486,7 @@ namespace TES3MPHeadless
     {
         outObservers.clear();
         std::vector<ConnectedObserver> connected;
-        collectConnectedObservers(connected);
+        mReplication.collectConnectedObservers(mPlayersWithKnownCell, mAnchors, connected);
         if (connected.empty())
             return;
 
@@ -1776,7 +1514,7 @@ namespace TES3MPHeadless
     std::size_t HeadlessServer::getConnectedPlayerCount() const
     {
         std::vector<ConnectedObserver> connected;
-        collectConnectedObservers(connected);
+        mReplication.collectConnectedObservers(mPlayersWithKnownCell, mAnchors, connected);
         return connected.size();
     }
 
@@ -1787,17 +1525,7 @@ namespace TES3MPHeadless
 
     std::uint64_t HeadlessServer::getAuthoritativeDeltaCount() const
     {
-        return mAuthoritativeDeltaCount;
-    }
-
-    HeadlessServer::AuthoritativeDeltaStats HeadlessServer::consumeAuthoritativeDeltaStats(
-        std::uint64_t& outTotalDeltas)
-    {
-        outTotalDeltas = mAuthoritativeDeltaCount;
-        const AuthoritativeDeltaStats snapshot = mDeltaStats;
-        mAuthoritativeDeltaCount = 0;
-        mDeltaStats = {};
-        return snapshot;
+        return mReplication.getAuthoritativeDeltaCount();
     }
 
     void HeadlessServer::applyDynamicRecords(const mwmp::BaseWorldstate& worldstate)
@@ -1977,7 +1705,7 @@ namespace TES3MPHeadless
 
         try
         {
-        MWWorld::CellStore* cellStore = resolveCellStore(objectList.cell);
+        MWWorld::CellStore* cellStore = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, objectList.cell);
         if (!cellStore)
             return;
 
@@ -1990,8 +1718,15 @@ namespace TES3MPHeadless
                 try
                 {
                     MWWorld::ManualRef ref(
-                        mWorld.getStore(), ESM::RefId::stringRefId(obj.refId), std::max(1, obj.count));
-                    MWWorld::Ptr placed = mWorld.placeObject(ref.getPtr(), cellStore, obj.position);
+                        mWorld.getStore(), ESM::RefId::deserializeText(obj.refId), std::max(1, obj.count));
+                    MWWorld::Ptr newPtr = ref.getPtr();
+                    if (obj.charge > -1)
+                        newPtr.getCellRef().setCharge(obj.charge);
+                    if (obj.enchantmentCharge > -1)
+                        newPtr.getCellRef().setEnchantmentCharge(obj.enchantmentCharge);
+                    if (!obj.soul.empty())
+                        newPtr.getCellRef().setSoul(ESM::RefId::deserializeText(obj.soul));
+                    MWWorld::Ptr placed = mWorld.placeObject(newPtr, cellStore, obj.position);
                     if (!placed.isEmpty())
                     {
                         placed.getCellRef().setMpNum(obj.mpNum);
@@ -2053,7 +1788,7 @@ namespace TES3MPHeadless
                         {
                             try
                             {
-                                const ESM::RefId itemId = ESM::RefId::stringRefId(item.refId);
+                                const ESM::RefId itemId = ESM::RefId::deserializeText(item.refId);
                                 if (objectList.action == mwmp::BaseObjectList::REMOVE)
                                     store.remove(itemId, std::max(1, item.count));
                                 else if (item.count > 0)
@@ -2083,7 +1818,7 @@ namespace TES3MPHeadless
         if (!mConfig.mAuthority.authoritativeMode)
             return;
 
-        MWWorld::CellStore* cellStore = resolveCellStore(actorList.cell);
+        MWWorld::CellStore* cellStore = HeadlessPlayerAnchorManager::resolveCellStore(mWorld, actorList.cell);
         for (const mwmp::BaseActor& actor : actorList.baseActors)
         {
             MWWorld::Ptr actorPtr;
@@ -2107,7 +1842,7 @@ namespace TES3MPHeadless
                 && (actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
                     || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW))
             {
-                aiTarget = resolveTargetPtr(actor.aiTarget, cellStore);
+                aiTarget = mCombat.resolveTargetPtr(actor.aiTarget, cellStore, mAnchors);
                 if (aiTarget.isEmpty() && actor.aiAction == mwmp::BaseActorList::ACTIVATE)
                     aiTarget = mWorld.searchPtrViaUniqueIndex(actor.aiTarget.refNum, actor.aiTarget.mpNum);
             }

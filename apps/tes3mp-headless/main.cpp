@@ -7,10 +7,17 @@
 #include <components/fallback/validate.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/files/conversion.hpp>
+#include <components/openmw-mp/TimedLog.hpp>
 #include <components/settings/settings.hpp>
 #include <components/version/version.hpp>
 
 #include <csignal>
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) unsigned int __stdcall SetErrorMode(unsigned int);
+#endif
+#if defined(_WIN32) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -67,6 +74,8 @@ namespace
             "Enable authoritative server NPC AI, combat, and object simulation (default true)");
         add("profile-ticks", bpo::bool_switch()->default_value(false),
             "Log per-phase tick timing breakdown (pollNetwork, World, Mechanics, Lua, broadcast)");
+        add("smoke-arrest-combat", bpo::bool_switch()->default_value(false),
+            "Run synthetic Balmora guard AiPursue -> Resist Arrest -> AiCombat smoke test");
         add("random-seed", bpo::value<unsigned int>()->default_value(0),
             "RNG seed (0 = time-based/default)");
         add("script-blacklist-warnings", bpo::value<int>()->default_value(0),
@@ -102,7 +111,7 @@ namespace
 
         cfgMgr.processPaths(variables, std::filesystem::current_path());
         cfgMgr.readConfiguration(variables, desc);
-        Debug::setupLogging(cfgMgr.getLogPath(), "tes3mp-headless");
+        Debug::setupLogging(cfgMgr.getLogPath(), "tes3mp-headless-" + TimedLog::getFilenameTimestamp());
 
         Settings::Manager settings;
         settings.load(cfgMgr);
@@ -137,6 +146,7 @@ namespace
         config.mCellGracePeriod = std::max(0.0, variables["cell-grace-period"].as<double>());
         config.mAuthoritative = variables["authoritative"].as<bool>();
         config.mProfileTicks = variables["profile-ticks"].as<bool>();
+        config.mSmokeArrestCombat = variables["smoke-arrest-combat"].as<bool>();
         config.mRandomSeed = variables["random-seed"].as<unsigned int>();
         config.mWarningsMode = variables["script-blacklist-warnings"].as<int>();
 
@@ -164,5 +174,14 @@ namespace
 
 int main(int argc, char** argv)
 {
+#if defined(_WIN32)
+    SetErrorMode(0x0001 | 0x0002); // SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
+#endif
+#if defined(_WIN32) && defined(_DEBUG)
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
     return Debug::wrapApplication(&runHeadless, argc, argv, "TES3MP-Headless");
 }

@@ -259,7 +259,19 @@ namespace MWMechanics
                 if (targetIsActor)
                 {
                     if (!targetIsDeadActor)
+                    {
                         target.getClass().getCreatureStats(target).getActiveSpells().addSpell(params);
+#ifdef TES3MP_HEADLESS
+                        static const ESM::RefId sPlayerRefId = ESM::RefId::stringRefId("player");
+                        if (target.getCellRef().getRefId() == sPlayerRefId)
+                        {
+                            Log(Debug::Info) << "[HeadlessSpell] Resolved spell on player anchor: caster="
+                                             << (mCaster.isEmpty() ? "<none>" : mCaster.getCellRef().getRefId().serializeText())
+                                             << " spellId=" << mId.serializeText()
+                                             << " range=" << static_cast<int>(range);
+                        }
+#endif
+                    }
                 }
                 else
                 {
@@ -443,9 +455,18 @@ namespace MWMechanics
                 else
                 {
                     localCast = MechanicsHelper::getLocalCast(mCaster);
-                    localCast->success = MechanicsHelper::getSpellSuccess(mId.toString(), mCaster);
-                    localCast->pressed = false;
-                    localCast->shouldSend = true;
+                    if (localCast)
+                    {
+                        localCast->success = MechanicsHelper::getSpellSuccess(mId.toString(), mCaster);
+                        localCast->pressed = false;
+                        localCast->shouldSend = true;
+                        if (!mTarget.isEmpty())
+                            localCast->target = MechanicsHelper::getTarget(mTarget);
+                    }
+                    else
+                    {
+                        fail = !MechanicsHelper::getSpellSuccess(mId.toString(), mCaster);
+                    }
                 }
 
                 // Check success
@@ -472,11 +493,13 @@ namespace MWMechanics
 
                         Send an ID_OBJECT_SOUND packet every time a sound is made here
                     */
+#ifndef TES3MP_HEADLESS
                     mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
                     objectList->reset();
                     objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
                     objectList->addObjectSound(mCaster, skill->mSchool->mFailureSound.getRefIdString(), 1.0f, 1.0f);
                     objectList->sendObjectSound();
+#endif
                     /*
                         End of tes3mp addition
                     */

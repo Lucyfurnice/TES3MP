@@ -113,6 +113,10 @@ public:
 
         return count;
     }
+
+#if defined(ENABLE_LUA)
+    static lua_State* GetPrimaryLuaState();
+#endif
 };
 
 #endif //PLUGINSYSTEM3_SCRIPT_HPP

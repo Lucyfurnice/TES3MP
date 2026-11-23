@@ -51,6 +51,11 @@
 #include "../mwmp/LocalPlayer.hpp"
 #include "../mwmp/PlayerList.hpp"
 #include "../mwmp/CellController.hpp"
+#ifndef TES3MP_HEADLESS
+#include <components/openmw-mp/NetworkMessages.hpp>
+#include "../mwmp/ActorList.hpp"
+#include "../mwmp/Networking.hpp"
+#endif
 /*
     End of tes3mp addition
 */
@@ -1191,14 +1196,34 @@ namespace MWMechanics
         }
     }
 
+    static bool isHeadlessPlayerAnchorPtr(const MWWorld::Ptr& ptr)
+    {
+#ifdef TES3MP_HEADLESS
+        static const ESM::RefId sPlayerAnchorRefId = ESM::RefId::stringRefId("player");
+        return !ptr.isEmpty() && ptr.getCellRef().getRefId() == sPlayerAnchorRefId;
+#else
+        (void)ptr;
+        return false;
+#endif
+    }
+
     bool MechanicsManager::commitCrime(const MWWorld::Ptr& player, const MWWorld::Ptr& victim, OffenseType type,
         const ESM::RefId& factionId, int arg, bool victimAware)
     {
         // NOTE: victim may be empty
 
         // Only player can commit crime
-        if (player != getPlayer())
+        if (player != getPlayer() && !isHeadlessPlayerAnchorPtr(player))
             return false;
+
+        if (!victim.isEmpty() && mwmp::PlayerList::isDedicatedPlayer(victim))
+            return false;
+
+#ifdef TES3MP_HEADLESS
+        // PvP hits against another player anchor never count as NPC crime or accrue bounty.
+        if (!victim.isEmpty() && isHeadlessPlayerAnchorPtr(victim))
+            return false;
+#endif
 
         if (type == OT_Assault)
             victimAware = true;
@@ -1261,7 +1286,8 @@ namespace MWMechanics
     bool MechanicsManager::canReportCrime(
         const MWWorld::Ptr& actor, const MWWorld::Ptr& victim, std::set<MWWorld::Ptr>& playerFollowers)
     {
-        if (actor == getPlayer() || !actor.getClass().isNpc() || actor.getClass().getCreatureStats(actor).isDead())
+        if (actor == getPlayer() || isHeadlessPlayerAnchorPtr(actor) || !actor.getClass().isNpc()
+            || actor.getClass().getCreatureStats(actor).isDead())
             return false;
 
         /*
@@ -1478,7 +1504,7 @@ namespace MWMechanics
 
                 setCrimeId = true;
 
-                if (!observerStats.getAiSequence().isInPursuit())
+                if (!observerStats.getAiSequence().isInPursuit() && !observerStats.getAiSequence().isInCombat(player))
                 {
                     observerStats.getAiSequence().stack(AiPursue(player), actor);
                 }
@@ -1549,7 +1575,8 @@ namespace MWMechanics
 
                         Send an ID_PLAYER_FACTION packet every time a player is expelled from a faction
                     */
-                    mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionID.serializeText(), true);
+                    if (!isHeadlessPlayerAnchorPtr(player) && mwmp::Main::get().getLocalPlayer())
+                        mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionID.serializeText(), true);
                     /*
                         End of tes3mp addition
                     */
@@ -1567,7 +1594,8 @@ namespace MWMechanics
 
                         Send an ID_PLAYER_FACTION packet every time a player is expelled from a faction
                     */
-                    mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionId.serializeText(), true);
+                    if (!isHeadlessPlayerAnchorPtr(player) && mwmp::Main::get().getLocalPlayer())
+                        mwmp::Main::get().getLocalPlayer()->sendFactionExpulsionState(factionId.serializeText(), true);
                     /*
                         End of tes3mp addition
                     */
@@ -1612,6 +1640,12 @@ namespace MWMechanics
             End of tes3mp change (major)
         */
 
+#ifdef TES3MP_HEADLESS
+        static const ESM::RefId sPlayerAnchorRefId = ESM::RefId::stringRefId("player");
+        if (target.getCellRef().getRefId() == sPlayerAnchorRefId)
+            return false;
+#endif
+
         if (canCommitCrimeAgainst(target, attacker))
             commitCrime(attacker, target, MWBase::MechanicsManager::OT_Assault);
 
@@ -1624,8 +1658,14 @@ namespace MWMechanics
             Make it possible to start combat with DedicatedPlayers and DedicatedActors by
             adding additional conditions for them
         */
+#ifdef TES3MP_HEADLESS
+        const bool isHeadlessPlayerAnchor = (attacker.getCellRef().getRefId() == sPlayerAnchorRefId);
+#else
+        constexpr bool isHeadlessPlayerAnchor = false;
+#endif
         if (!attacker.isEmpty()
             && (attacker.getClass().getCreatureStats(attacker).getAiSequence().isInCombat(target) || attacker == player
+                || isHeadlessPlayerAnchor
                 || mwmp::PlayerList::isDedicatedPlayer(attacker)
                 || mwmp::Main::get().getCellController()->isDedicatedActor(attacker))
             && !seq.isInCombat(attacker))
@@ -1829,7 +1869,33 @@ namespace MWMechanics
             }
         }
         stats.getAiSequence().stack(MWMechanics::AiCombat(target), ptr);
-        if (target == getPlayer())
+#ifndef TES3MP_HEADLESS
+        if (mwmp::Main::get().isAuthoritativeServer() && target == getPlayer()
+            && mwmp::Main::get().getCellController()->isDedicatedActor(ptr))
+        {
+            if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+            {
+                if (mwmp::Networking* networking = mwmp::Main::get().getNetworking())
+                {
+                    mwmp::ActorList actorList;
+                    actorList.cell = ptr.getCell()->getCell()->getEsm3();
+                    actorList.action = mwmp::BaseActorList::SET;
+                    mwmp::BaseActor baseActor;
+                    baseActor.refId = ptr.getCellRef().getRefId().serializeText();
+                    baseActor.refNum = ptr.getCellRef().getRefNum().mIndex;
+                    baseActor.mpNum = ptr.getCellRef().getMpNum();
+                    baseActor.aiAction = mwmp::BaseActorList::COMBAT;
+                    baseActor.hasAiTarget = true;
+                    baseActor.aiTarget.isPlayer = true;
+                    baseActor.aiTarget.guid = localPlayer->guid;
+                    actorList.baseActors.push_back(baseActor);
+                    networking->getActorPacket(ID_ACTOR_AI)->setActorList(&actorList);
+                    networking->getActorPacket(ID_ACTOR_AI)->Send();
+                }
+            }
+        }
+#endif
+        if (target == getPlayer() || isHeadlessPlayerAnchorPtr(target))
         {
             // if guard starts combat with player, guards pursuing player should do the same
             if (ptr.getClass().isClass(ptr, "Guard"))

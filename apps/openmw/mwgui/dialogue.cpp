@@ -572,6 +572,7 @@ namespace MWGui
 
         mPtr = actor;
         mGoodbye = false;
+        mChoiceOpenCooldown = mwmp::Main::get().isAuthoritativeServer() ? 0.45f : 0.f;
         mTopicsList->setEnabled(true);
 
         if (!MWBase::Environment::get().getDialogueManager()->startDialogue(actor, mGreetingCallback.get()))
@@ -867,6 +868,13 @@ namespace MWGui
             onGoodbyeActivated();
             return;
         }
+        if (mwmp::Main::get().isAuthoritativeServer())
+        {
+            if (mChoiceOpenCooldown > 0.f)
+                return;
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "DialogueWindow::onChoiceActivated choice=%i", id);
+            sendDialogueChoicePacket("__CHOICE__:" + std::to_string(id));
+        }
         MWBase::Environment::get().getDialogueManager()->questionAnswered(id, mCallback.get());
         updateTopics();
     }
@@ -934,6 +942,8 @@ namespace MWGui
 
     void DialogueWindow::onFrame(float dt)
     {
+        if (mChoiceOpenCooldown > 0.f)
+            mChoiceOpenCooldown = std::max(0.f, mChoiceOpenCooldown - dt);
         checkReferenceAvailable();
         if (mPtr.isEmpty())
             return;

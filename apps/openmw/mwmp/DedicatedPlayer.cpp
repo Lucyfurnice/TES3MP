@@ -1,4 +1,5 @@
 #include <boost/algorithm/clamp.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Utils.hpp>
@@ -83,6 +84,9 @@ DedicatedPlayer::~DedicatedPlayer()
 
 void DedicatedPlayer::update(float dt)
 {
+    if (ptr.isEmpty())
+        return;
+
     // Only move and set anim flags if the framerate isn't too low
     if (dt < 0.1)
     {
@@ -317,7 +321,7 @@ void DedicatedPlayer::setEquipment()
             continue;
 
         const int count = equipmentItems[slot].count;
-        ptr.getClass().getContainerStore(ptr).add(ESM::RefId::stringRefId(packetRefId), count, true);
+        ptr.getClass().getContainerStore(ptr).add(ESM::RefId::deserializeText(packetRefId), count, true);
         // Equip items silently if this is the first time equipment is being set for this character
         equipItem(packetRefId, !hasReceivedInitialEquipment);
         equippedSomething = true;
@@ -360,7 +364,7 @@ void DedicatedPlayer::setShapeshift()
             }
             else
             {
-                creature.mId = ESM::RefId::stringRefId(creatureRecordId);
+                creature.mId = ESM::RefId::deserializeText(creatureRecordId);
                 RecordHelper::overrideRecord(creature);
             }
 
@@ -597,11 +601,19 @@ void DedicatedPlayer::createReference(const std::string& recId)
 {
     MWBase::World *world = MWBase::Environment::get().getWorld();
 
-    reference = new MWWorld::ManualRef(world->getStore(), ESM::RefId::stringRefId(recId), 1);
+    reference = new MWWorld::ManualRef(world->getStore(), ESM::RefId::deserializeText(recId), 1);
 
-    LOG_APPEND(TimedLog::LOG_INFO, "- Creating new reference pointer for %s", npc.mName.c_str());
+    LOG_APPEND(TimedLog::LOG_INFO, "- Creating new reference pointer for %s (recId=%s, cell=%s)",
+        npc.mName.c_str(), recId.c_str(), Utils::getCellDescription(cell).c_str());
 
     ptr = world->placeObject(reference->getPtr(), Main::get().getCellController()->getCellStore(cell), position);
+
+#ifdef _DEBUG
+    Log(Debug::Debug) << "[DedicatedPlayer] Created reference pid=" << npc.mName
+                      << " recId=" << recId
+                      << " cell=" << Utils::getCellDescription(cell)
+                      << " ptrEmpty=" << (ptr.isEmpty() ? "true" : "false");
+#endif
 
     ESM::CustomMarker mEditingMarker = Main::get().getGUIController()->createMarker(guid);
     marker = mEditingMarker;

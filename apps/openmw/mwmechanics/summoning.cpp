@@ -38,6 +38,29 @@
 
 namespace MWMechanics
 {
+#ifdef TES3MP_HEADLESS
+    namespace
+    {
+        HeadlessSummonCallback sHeadlessSummonCallback;
+        HeadlessUnsummonCallback sHeadlessUnsummonCallback;
+    }
+
+    void setHeadlessSummonCallback(HeadlessSummonCallback cb)
+    {
+        sHeadlessSummonCallback = std::move(cb);
+    }
+
+    void setHeadlessUnsummonCallback(HeadlessUnsummonCallback cb)
+    {
+        sHeadlessUnsummonCallback = std::move(cb);
+    }
+
+    void notifyHeadlessUnsummon(const MWWorld::Ptr& ptr)
+    {
+        if (sHeadlessUnsummonCallback && !ptr.isEmpty())
+            sHeadlessUnsummonCallback(ptr);
+    }
+#endif
 
     bool isSummoningEffect(ESM::RefId effectId)
     {
@@ -140,8 +163,30 @@ namespace MWMechanics
             try
             {
                 auto world = MWBase::Environment::get().getWorld();
+#ifdef TES3MP_HEADLESS
+                auto& summonMap = summoner.getClass().getCreatureStats(summoner).getSummonedCreatureMap();
+                if (auto existingIt = summonMap.find(effectId); existingIt != summonMap.end())
+                {
+                    if (existingIt->second.isSet())
+                        MWBase::Environment::get().getMechanicsManager()->cleanupSummonedCreature(existingIt->second);
+                    summonMap.erase(existingIt);
+                }
+#endif
                 MWWorld::ManualRef ref(world->getStore(), creatureID, 1);
                 MWWorld::Ptr placed = world->safePlaceObject(ref.getPtr(), summoner, summoner.getCell(), 0, 120.f);
+#ifdef TES3MP_HEADLESS
+                Log(Debug::Info) << "[INFO] Headless summonCreature placed=" << placed.getCellRef().getRefId().serializeText()
+                                 << " hasCallback=" << (sHeadlessSummonCallback ? "true" : "false");
+                MWBase::Environment::get().getWorldModel()->registerPtr(placed);
+                creature = placed.getCellRef().getRefNum();
+
+                // Make the summoned creature follow its master and help in fights
+                AiFollow package(summoner);
+                placed.getClass().getCreatureStats(placed).getAiSequence().stack(package, placed);
+
+                if (sHeadlessSummonCallback)
+                    sHeadlessSummonCallback(placed, summoner, effectId, sourceId);
+#else
                 /*
                 MWBase::Environment::get().getWorldModel()->registerPtr(placed);
                 creature = placed.getCellRef().getRefNum();
@@ -177,6 +222,7 @@ namespace MWMechanics
                 }
 
                 world->deleteObject(placed);
+#endif
             }
             catch (std::exception& e)
             {

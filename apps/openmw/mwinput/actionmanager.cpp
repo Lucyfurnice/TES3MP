@@ -4,6 +4,7 @@
 
 #include <SDL_keyboard.h>
 
+#include <components/openmw-mp/TimedLog.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -287,10 +288,16 @@ namespace MWInput
         /*
             Start of tes3mp addition
 
-            If a player's console is disabled by the server, go no further
+            If a player's console is disabled by the server or lacks staffRank, go no further
         */
-        if (!mwmp::Main::get().getLocalPlayer()->consoleAllowed)
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer && (!localPlayer->consoleAllowed || localPlayer->staffRank <= 0))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Blocked console toggle: consoleAllowed=%s staffRank=%d",
+                localPlayer->consoleAllowed ? "true" : "false", localPlayer->staffRank);
             return;
+        }
         /*
             End of tes3mp addition
         */

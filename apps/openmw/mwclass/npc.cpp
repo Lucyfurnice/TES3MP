@@ -4,6 +4,7 @@
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
 #include "../mwmp/Main.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
 #endif
 
 #include <format>
@@ -627,6 +628,26 @@ namespace MWClass
         if (!MWMechanics::isInMeleeReach(ptr, victim, MWMechanics::getMeleeWeaponReach(ptr, weapon)))
             return;
 
+#ifndef TES3MP_HEADLESS
+        if (mwmp::Main::isInitialized() && mwmp::Main::get().isAuthoritativeServer())
+        {
+            if (mwmp::Attack* localAttack = MechanicsHelper::getLocalAttack(ptr))
+            {
+                MechanicsHelper::resetAttack(localAttack);
+                localAttack->type = mwmp::Attack::MELEE;
+                localAttack->pressed = false;
+                localAttack->target = MechanicsHelper::getTarget(victim);
+                localAttack->hitPosition = MechanicsHelper::getPositionFromVector(hitPosition);
+                localAttack->attackStrength = attackStrength;
+                localAttack->attackAnimation = (type == ESM::Weapon::AT_Chop) ? "chop"
+                    : ((type == ESM::Weapon::AT_Slash) ? "slash" : "thrust");
+                localAttack->isHit = !victim.isEmpty();
+                localAttack->success = success;
+                localAttack->shouldSend = true;
+            }
+        }
+#endif
+
         if (ptr == MWMechanics::getPlayer())
             MWBase::Environment::get().getWindowManager()->setEnemy(victim);
 
@@ -709,6 +730,14 @@ namespace MWClass
 
         MWBase::Environment::get().getLuaManager()->onHit(ptr, victim, weapon, MWWorld::Ptr(), type, attackStrength,
             damage, healthdmg, hitPosition, true, MWMechanics::DamageSourceType::Melee);
+#ifdef TES3MP_HEADLESS
+        if (damage > 0.f)
+        {
+            const ESM::RefId weaponId = weapon.isEmpty() ? ESM::RefId() : weapon.getCellRef().getRefId();
+            othercls.onHit(victim, { { healthdmg ? "health" : "fatigue", damage } }, weaponId, ptr, true,
+                MWMechanics::DamageSourceType::Melee);
+        }
+#endif
     }
 
     void Npc::onHit(const MWWorld::Ptr& ptr, const std::map<std::string, float>& damages, ESM::RefId object,
@@ -735,14 +764,20 @@ namespace MWClass
         if (!attacker.isEmpty() && attacker.getClass().isActor())
         {
             MWMechanics::CreatureStats& statsAttacker = attacker.getClass().getCreatureStats(attacker);
+#ifdef TES3MP_HEADLESS
+            const bool isPlayerOrAnchor = (attacker == MWMechanics::getPlayer()
+                || attacker.getCellRef().getRefId() == ESM::RefId::stringRefId("player"));
+#else
+            const bool isPlayerOrAnchor = (attacker == MWMechanics::getPlayer());
+#endif
             // First handle the attacked actor
             if (!stats.getHitAttemptActor().isSet()
-                && (statsAttacker.getAiSequence().isInCombat(ptr) || attacker == MWMechanics::getPlayer()))
+                && (statsAttacker.getAiSequence().isInCombat(ptr) || isPlayerOrAnchor))
                 stats.setHitAttemptActor(attacker.getCellRef().getRefNum());
 
             // Next handle the attacking actor
             if (!statsAttacker.getHitAttemptActor().isSet()
-                && (statsAttacker.getAiSequence().isInCombat(ptr) || attacker == MWMechanics::getPlayer()))
+                && (statsAttacker.getAiSequence().isInCombat(ptr) || isPlayerOrAnchor))
                 statsAttacker.setHitAttemptActor(ptr.getCellRef().getRefNum());
         }
 

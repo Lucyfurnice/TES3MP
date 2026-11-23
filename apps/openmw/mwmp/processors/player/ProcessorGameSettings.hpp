@@ -26,15 +26,21 @@ namespace mwmp
             if (isLocal())
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received ID_GAME_SETTINGS");
-                LOG_APPEND(TimedLog::LOG_INFO, "- player %s rest in beds, %s rest in the wilderness, %s wait",
+                LOG_APPEND(TimedLog::LOG_INFO,
+                    "- player %s use console (staffRank=%i), %s rest in beds, %s rest in the wilderness, %s wait",
+                    (player->consoleAllowed && player->staffRank > 0) ? "can" : "cannot", player->staffRank,
                     player->bedRestAllowed ? "can" : "cannot", player->wildernessRestAllowed ? "can" : "cannot",
                     player->waitAllowed ? "can" : "cannot");
 
+                if (MWBase::Environment::get().getWindowManager()->isConsoleMode()
+                    && (!player->consoleAllowed || player->staffRank <= 0))
+                {
+                    MWBase::Environment::get().getWindowManager()->toggleConsole();
+                }
+
                 if (MWBase::Environment::get().getWindowManager()->isGuiMode())
                 {
-                    if (MWBase::Environment::get().getWindowManager()->isConsoleMode() && !player->consoleAllowed)
-                        MWBase::Environment::get().getWindowManager()->popGuiMode();
-                    else if (MWBase::Environment::get().getWindowManager()->getMode() == MWGui::GM_Rest &&
+                    if (MWBase::Environment::get().getWindowManager()->getMode() == MWGui::GM_Rest &&
                         (!player->bedRestAllowed || !player->wildernessRestAllowed || !player->waitAllowed))
                         MWBase::Environment::get().getWindowManager()->popGuiMode();
                 }
