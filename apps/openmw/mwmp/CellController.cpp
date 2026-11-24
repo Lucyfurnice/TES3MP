@@ -415,14 +415,35 @@ DedicatedActor *CellController::getDedicatedActor(int refNum, int mpNum)
 
 std::string CellController::generateMapIndex(int refNum, int mpNum)
 {
-    std::string mapIndex = "";
-    mapIndex = Utils::toString(refNum) + "-" + Utils::toString(mpNum);
-    return mapIndex;
+    /*
+        Start of tes3mp change
+
+        Dynamically spawned objects (summons, script-spawned creatures) only have a stable
+        mpNum, while their refNum differs between the server and each client. Key those by mpNum
+        only so server-authoritative deltas find the right actor on the client.
+
+        End of tes3mp change
+    */
+    if (mpNum != 0)
+        return "0-" + Utils::toString(mpNum);
+
+    return Utils::toString(refNum) + "-" + Utils::toString(mpNum);
 }
 
 std::string CellController::generateMapIndex(MWWorld::Ptr ptr)
 {
-    return generateMapIndex(ptr.getCellRef().getRefNum().mIndex, ptr.getCellRef().getMpNum());
+    /*
+        Start of tes3mp change
+
+        Same normalisation for locally built indexes, so a client Ptr with a real refNum
+        resolves to the same mpNum-only key the server sends.
+
+        End of tes3mp change
+    */
+    if (ptr.getCellRef().getMpNum() != 0)
+        return generateMapIndex(0, ptr.getCellRef().getMpNum());
+
+    return generateMapIndex(ptr.getCellRef().getRefNum().mIndex, 0);
 }
 
 std::string CellController::generateMapIndex(BaseActor baseActor)

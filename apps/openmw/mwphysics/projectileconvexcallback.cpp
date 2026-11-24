@@ -4,6 +4,8 @@
 #include "projectile.hpp"
 #include "projectileconvexcallback.hpp"
 
+#include "../../tes3mp-headless/rangeddebug.hpp"
+
 namespace MWPhysics
 {
     btScalar ProjectileConvexCallback::addSingleResult(
@@ -23,7 +25,10 @@ namespace MWPhysics
         {
             case CollisionType_Actor:
             {
-                if (!mProjectile.isValidTarget(hitObject))
+                const bool valid = mProjectile.isValidTarget(hitObject);
+                TES3MP_RANGED_LOG << "[RangedDebug] convexSweep actorHit isValidTarget=" << (valid ? 1 : 0)
+                                  << " fraction=" << result.m_hitFraction;
+                if (!valid)
                     return 1.f;
                 break;
             }

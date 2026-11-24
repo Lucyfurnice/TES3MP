@@ -1794,19 +1794,63 @@ namespace MWMechanics
                 const bool inProcessingRange = distSqr <= actorsProcessingRange * actorsProcessingRange;
 #endif
 
-                // If dead or no longer in combat, no longer store any actors who attempted to hit us. Also remove for
-                // the player.
+                CreatureStats& actorStats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
+
                 /*
                     Start of tes3mp change (major)
 
                     Allow this code to use the same logic for DedicatedPlayers as for LocalPlayers
                 */
-                if (!isPlayer && !mwmp::PlayerList::isDedicatedPlayer(actor.getPtr())
-                    && (actor.getPtr().getClass().getCreatureStats(actor.getPtr()).isDead()
-                        || !actor.getPtr().getClass().getCreatureStats(actor.getPtr()).getAiSequence().isInCombat()
-                        || !inProcessingRange))
+#ifdef TES3MP_HEADLESS
+                // A headless player anchor stands in for a LocalPlayer, so it must behave like one here.
+                static const ESM::RefId sPlayerAnchorRefId = ESM::RefId::stringRefId("player");
+                const bool isPlayerAnchor = !isPlayer && actor.getPtr().getCellRef().getRefId() == sPlayerAnchorRefId;
+                if (isPlayerAnchor)
                 {
-                    actor.getPtr().getClass().getCreatureStats(actor.getPtr()).setHitAttemptActor({});
+                    /*
+                        A player anchor - like the real LocalPlayer - must keep the last actor it aggressed (or that
+                        aggressed it) instead of having it wiped every frame just because the anchor itself is not in
+                        an AiCombat sequence. Summoned creatures that side with the anchor (via AiFollow) rely on this
+                        field to join the fight through Actors::engageCombat(). Only drop it once the recorded opponent
+                        is genuinely gone.
+                    */
+                    const ESM::RefNum aggressorNum = actorStats.getHitAttemptActor();
+                    if (aggressorNum.isSet() && !actorStats.isDead())
+                    {
+                        const MWWorld::Ptr aggressor = MWBase::Environment::get().getWorldModel()->getPtr(aggressorNum);
+                        bool stillValid = !aggressor.isEmpty() && aggressor.isInCell()
+                            && !aggressor.getClass().getCreatureStats(aggressor).isDead();
+                        if (stillValid)
+                        {
+                            const osg::Vec3f anchorPos = actor.getPtr().getRefData().getPosition().asVec3();
+                            const osg::Vec3f aggressorPos = aggressor.getRefData().getPosition().asVec3();
+                            const float range = static_cast<float>(actorsProcessingRange);
+                            stillValid = (aggressorPos - anchorPos).length2() <= range * range;
+                        }
+                        // Player-vs-player remains valid until overwritten or out of range; an NPC/creature stops
+                        // being a valid opponent as soon as it is no longer fighting the anchor.
+                        if (stillValid && aggressor.getCellRef().getRefId() != sPlayerAnchorRefId)
+                            stillValid
+                                = aggressor.getClass().getCreatureStats(aggressor).getAiSequence().isInCombat(actor.getPtr());
+                        if (!stillValid)
+                            actorStats.setHitAttemptActor({});
+                    }
+                    /*
+                        Do NOT clear the hit attempt actor here when the player anchor is dead. The kill
+                        attribution in HeadlessCombatController::dispatchAnchorHealthAndDeath reads this field
+                        to name the NPC/creature killer; clearing it here (order-dependent within this loop)
+                        would make NPC kills look like suicides. The field is consumed and cleared by that
+                        dispatch, and also on resurrection.
+                    */
+                }
+                // If dead or no longer in combat, no longer store any actors who attempted to hit us. Also remove for
+                // the player.
+                else
+#endif
+                if (!isPlayer && !mwmp::PlayerList::isDedicatedPlayer(actor.getPtr())
+                    && (actorStats.isDead() || !actorStats.getAiSequence().isInCombat() || !inProcessingRange))
+                {
+                    actorStats.setHitAttemptActor({});
                     ESM::RefNum playerHitNum = player.getClass().getCreatureStats(player).getHitAttemptActor();
                     if (playerHitNum.isSet() && playerHitNum == actor.getPtr().getCellRef().getRefNum())
                         player.getClass().getCreatureStats(player).setHitAttemptActor({});
@@ -2198,6 +2242,20 @@ namespace MWMechanics
         if (!ptr.isEmpty())
         {
             notifyHeadlessUnsummon(ptr);
+
+            /*
+                Start of tes3mp change
+
+                The headless server owns the world, so also remove the creature from it. Without
+                this the old summon keeps living and replicating after a recast, which allows
+                multiple copies of the same summon to exist at once.
+            */
+            if (ptr.isInCell())
+            {
+                const_cast<Actors*>(this)->removeActor(ptr, /*keepActive*/ true);
+                MWBase::Environment::get().getWorld()->deleteObject(ptr);
+            }
+            /* End of tes3mp change */
 #else
         /*
             Start of tes3mp change (major)

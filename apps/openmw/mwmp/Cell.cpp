@@ -282,6 +282,32 @@ void Cell::readDeath(ActorList& actorList)
             actor->creatureStats.mDead = true;
             actor->creatureStats.mDynamic[0].mCurrent = 0;
 
+            /*
+                Start of tes3mp change
+
+                Apply the death to the live MWMechanics::CreatureStats immediately instead of only
+                recording it on this DedicatedActor's shadow copy. Previously the shadow copy was
+                propagated by DedicatedActor::setStatsDynamic, which is skipped entirely when no
+                stats packet has been processed yet (hasStatsDynamicData == false) and is
+                overwritten by Cell::readStatsDynamic. As a result Npc::activate saw
+                CreatureStats::isDead() == false, the corpse never played its death animation, and
+                activating it opened dialogue instead of the loot container.
+            */
+            if (!actor->getPtr().isEmpty())
+            {
+                MWMechanics::CreatureStats& liveStats = actor->getPtr().getClass().getCreatureStats(actor->getPtr());
+
+                if (baseActor.isInstantDeath || baseActor.deathState == 2)
+                    liveStats.setDeathAnimationFinished(true);
+
+                MWMechanics::DynamicStat<float> health = liveStats.getHealth();
+                health.setCurrent(0);
+                liveStats.setHealth(health);
+            }
+            /*
+                End of tes3mp change
+            */
+
             Main::get().getCellController()->setQueuedDeathState(actor->getPtr(), baseActor.deathState);
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received ID_ACTOR_DEATH about %s %i-%i in cell %s\n- deathState: %d\n-isInstantDeath: %s",

@@ -95,6 +95,9 @@ namespace MWWorld
 
             int mProjectileId;
             bool mToDelete;
+
+            // Seconds this projectile has existed, used to expire ones that never hit anything.
+            float mLifetime = 0.f;
         };
 
         struct MagicBoltState : public State

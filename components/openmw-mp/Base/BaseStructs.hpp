@@ -211,8 +211,8 @@ namespace mwmp
     struct SimpleCreatureStats
     {
         ESM::StatState<float> mDynamic[3];
-        bool mDead;
-        bool mDeathAnimationFinished;
+        bool mDead = false;
+        bool mDeathAnimationFinished = false;
     };
 }
 

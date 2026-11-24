@@ -2,6 +2,8 @@
 
 #include "playeranchormanager.hpp"
 
+#include "../rangeddebug.hpp"
+
 #include <apps/openmw-mp/Cell.hpp>
 #include <apps/openmw-mp/CellController.hpp>
 #include <apps/openmw-mp/Networking.hpp>
@@ -26,6 +28,8 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Packets/Actor/ActorPacket.hpp>
 #include <components/openmw-mp/Packets/Object/ObjectPacket.hpp>
+#include <osg/Quat>
+
 #include <RakPeerInterface.h>
 
 #include <algorithm>
@@ -205,6 +209,7 @@ namespace TES3MPHeadless
     void HeadlessReplicationSystem::clear()
     {
         mActorSnapshots.clear();
+        mActorSnapshotsByMpNum.clear();
         mContainerSnapshots.clear();
         mAuthoritativeDeltaCount = 0;
         mDeltaStats = {};
@@ -219,6 +224,90 @@ namespace TES3MPHeadless
         mAuthoritativeDeltaCount = 0;
         mDeltaStats = {};
         return delta;
+    }
+
+    void HeadlessReplicationSystem::sendAttackLandedToPlayer(::Player& victimPlayer, const MWWorld::Ptr& attacker,
+        bool ranged, float damage, RakNet::RakPeerInterface* peer, mwmp::Networking* networking)
+    {
+        if (attacker.isEmpty() || !networking || !attacker.isInCell())
+            return;
+
+        MWWorld::CellStore* cellStore = attacker.getCell();
+        if (!cellStore)
+            return;
+
+        mwmp::ActorPacket* pkt = networking->getActorPacketController()->GetPacket(ID_ACTOR_ATTACK);
+        if (!pkt)
+            return;
+
+        const ESM::Cell esmCell = cellFromStore(*cellStore);
+        mwmp::BaseActor atkActor = buildBaseActor(attacker, mWorld, esmCell, false, false, false);
+
+        atkActor.attack.type = ranged ? mwmp::Attack::RANGED : mwmp::Attack::MELEE;
+        atkActor.attack.pressed = false;
+        atkActor.attack.isHit = true;
+        atkActor.attack.success = true;
+        atkActor.attack.attackAnimation = ranged ? "shoot" : "slash";
+        /*
+            Start of tes3mp addition
+
+            Do not carry the damage here: the authoritative health change is already delivered through
+            ID_PLAYER_STATS_DYNAMIC, and the client-side onHit in MechanicsHelper::processAttack would apply it a
+            second time (leaving the owning client desynced until the next unrelated stats change). This packet
+            only tells the client the attack landed so it completes the ranged animation and plays hit feedback.
+        */
+        atkActor.attack.damage = 0.f;
+        /*
+            End of tes3mp addition
+        */
+        atkActor.attack.attackStrength = 1.f;
+        atkActor.attack.target.isPlayer = true;
+        atkActor.attack.target.guid = victimPlayer.guid;
+
+        /*
+            Start of tes3mp addition
+
+            Populate the ranged fields so the client can play the release/hit with the right bow/ammo, exactly
+            like the pressed packet that started the attack.
+        */
+        if (ranged && attacker.getClass().hasInventoryStore(attacker))
+        {
+            const MWWorld::InventoryStore& inv = attacker.getClass().getInventoryStore(attacker);
+            auto weapIt = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+            if (weapIt != inv.end() && weapIt->getType() == ESM::Weapon::sRecordId)
+                atkActor.attack.rangedWeaponId = weapIt->getCellRef().getRefId().serializeText();
+            auto ammoIt = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
+            if (ammoIt != inv.end() && ammoIt->getType() == ESM::Weapon::sRecordId)
+                atkActor.attack.rangedAmmoId = ammoIt->getCellRef().getRefId().serializeText();
+
+            const ESM::Position& refPos = attacker.getRefData().getPosition();
+            const osg::Vec3f launchPos = refPos.asVec3() + osg::Vec3f(0.f, 0.f, 96.f);
+            const osg::Quat orient = osg::Quat(refPos.rot[0], osg::Vec3f(-1.f, 0.f, 0.f))
+                * osg::Quat(refPos.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+            atkActor.attack.projectileOrigin.origin[0] = launchPos.x();
+            atkActor.attack.projectileOrigin.origin[1] = launchPos.y();
+            atkActor.attack.projectileOrigin.origin[2] = launchPos.z();
+            atkActor.attack.projectileOrigin.orientation[0] = orient.x();
+            atkActor.attack.projectileOrigin.orientation[1] = orient.y();
+            atkActor.attack.projectileOrigin.orientation[2] = orient.z();
+            atkActor.attack.projectileOrigin.orientation[3] = orient.w();
+        }
+        /*
+            End of tes3mp addition
+        */
+
+        mwmp::BaseActorList batch;
+        batch.cell = esmCell;
+        batch.guid = peer ? peer->GetMyGUID() : RakNet::RakNetGUID();
+        batch.count = 1;
+        batch.baseActors.push_back(std::move(atkActor));
+
+        pkt->setActorList(&batch);
+        pkt->Send(victimPlayer.guid);
+
+        TES3MP_RANGED_LOG << "[RangedDebug] reported " << (ranged ? "ranged" : "melee")
+                          << " landed attack by " << attacker.getCellRef().getRefId() << " on pid="
+                          << victimPlayer.getId() << " damage=" << damage;
     }
 
     void HeadlessReplicationSystem::collectConnectedObservers(
@@ -415,7 +504,32 @@ namespace TES3MPHeadless
                 const float fatigue = stats.getFatigue().getCurrent();
                 const bool dead = stats.isDead();
 
+                /*
+                    Start of tes3mp change
+
+                    Dynamically spawned actors (summons, script-spawned creatures) are erased from the
+                    world and re-placed whenever they gain a stable identity, which gives them a new
+                    LiveCellRefBase key while keeping the same mpNum. Treat them as the same actor by
+                    mpNum so we don't wipe their snapshot (and every delta) on every replacement.
+                */
+                const int ptrMpNum = ptr.getCellRef().getMpNum();
+                if (ptrMpNum != 0)
+                {
+                    const auto existingByMpNum = mActorSnapshotsByMpNum.find(ptrMpNum);
+                    if (existingByMpNum != mActorSnapshotsByMpNum.end() && existingByMpNum->second != key)
+                    {
+                        auto oldIt = mActorSnapshots.find(existingByMpNum->second);
+                        if (oldIt != mActorSnapshots.end())
+                        {
+                            mActorSnapshots.try_emplace(key, oldIt->second);
+                            mActorSnapshots.erase(oldIt);
+                        }
+                    }
+                }
+
                 auto [it, inserted] = mActorSnapshots.try_emplace(key);
+                if (ptrMpNum != 0)
+                    mActorSnapshotsByMpNum[ptrMpNum] = key;
                 ActorSnapshot& snap = it->second;
                 if (inserted || !snap.mInitialized)
                 {
@@ -482,8 +596,17 @@ namespace TES3MPHeadless
                 const bool attacking = stats.getAttackingOrSpell();
                 const bool attackDirty = batchCapacityRemaining && (attacking != snap.mAttacking)
                     && drawState == static_cast<char>(MWMechanics::DrawState::Weapon);
-                if (attacking != snap.mAttacking && !attackDirty)
-                    snap.mAttacking = attacking;
+                /*
+                    Start of tes3mp change
+
+                    Do not advance the snapshot when the transition could not be sent this frame (batch capacity
+                    exhausted, or the actor has not reached the weapon draw state yet). Updating it here discarded
+                    the pressed start/stop event, so an archer whose batch was momentarily full - or whose attack
+                    began on the same frame it drew the bow - would never have its ranged attack transmitted.
+                */
+                /*
+                    End of tes3mp change
+                */
 
                 bool equipDirty = false;
                 std::uint64_t currentEquipHash = snap.mEquipmentHash;
@@ -515,6 +638,8 @@ namespace TES3MPHeadless
                 {
                     mwmp::BaseActor atkActor = baseActor;
                     bool isRanged = false;
+                    MWWorld::ConstPtr rangedWeapon;
+                    MWWorld::ConstPtr rangedAmmo;
                     if (ptr.getClass().hasInventoryStore(ptr))
                     {
                         const MWWorld::InventoryStore& inv = ptr.getClass().getInventoryStore(ptr);
@@ -525,15 +650,56 @@ namespace TES3MPHeadless
                                 = MWMechanics::getWeaponType(weapIt->get<ESM::Weapon>()->mBase->mData.mType)
                                       ->mWeaponClass;
                             isRanged = (weapClass == ESM::WeaponType::Ranged || weapClass == ESM::WeaponType::Thrown);
+                            if (isRanged)
+                                rangedWeapon = *weapIt;
                         }
+
+                        auto ammoIt = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
+                        if (ammoIt != inv.end() && ammoIt->getType() == ESM::Weapon::sRecordId)
+                            rangedAmmo = *ammoIt;
                     }
                     atkActor.attack.type = isRanged ? mwmp::Attack::RANGED : mwmp::Attack::MELEE;
                     atkActor.attack.pressed = attacking;
                     atkActor.attack.attackAnimation = isRanged ? "shoot" : "slash";
                     atkActor.attack.isHit = false;
+
+                    /*
+                        Start of tes3mp change
+
+                        Populate the ranged fields so clients can spawn the correct projectile. Without the
+                        weapon/ammo ids, attack strength and projectile origin, the client's release would
+                        launch an arrow from (0,0,0) at minimum speed.
+                    */
+                    if (isRanged && !rangedWeapon.isEmpty())
+                    {
+                        atkActor.attack.attackStrength = 1.f;
+                        atkActor.attack.rangedWeaponId = rangedWeapon.getCellRef().getRefId().serializeText();
+                        if (!rangedAmmo.isEmpty())
+                            atkActor.attack.rangedAmmoId = rangedAmmo.getCellRef().getRefId().serializeText();
+
+                        const ESM::Position& refPos = ptr.getRefData().getPosition();
+                        const osg::Vec3f launchPos = refPos.asVec3() + osg::Vec3f(0.f, 0.f, 96.f);
+                        const osg::Quat orient = osg::Quat(refPos.rot[0], osg::Vec3f(-1.f, 0.f, 0.f))
+                            * osg::Quat(refPos.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+                        atkActor.attack.projectileOrigin.origin[0] = launchPos.x();
+                        atkActor.attack.projectileOrigin.origin[1] = launchPos.y();
+                        atkActor.attack.projectileOrigin.origin[2] = launchPos.z();
+                        atkActor.attack.projectileOrigin.orientation[0] = orient.x();
+                        atkActor.attack.projectileOrigin.orientation[1] = orient.y();
+                        atkActor.attack.projectileOrigin.orientation[2] = orient.z();
+                        atkActor.attack.projectileOrigin.orientation[3] = orient.w();
+                    }
+                    /*
+                        End of tes3mp change
+                    */
+
                     attackBatch.baseActors.push_back(std::move(atkActor));
                     snap.mAttacking = attacking;
                     ++mAuthoritativeDeltaCount;
+                    TES3MP_RANGED_LOG << "[RangedDebug] attack packet actor=" << ptr.getCellRef().getRefId()
+                                      << " pressed=" << (attacking ? "true" : "false")
+                                      << " ranged=" << (isRanged ? "true" : "false")
+                                      << " anim=" << (isRanged ? "shoot" : "slash") << " isHit=false (pressed event)";
                 }
 
                 if (posDirty)

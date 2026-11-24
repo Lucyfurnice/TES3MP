@@ -65,6 +65,19 @@ namespace TES3MPHeadless
             const mwmp::ServerAuthorityConfig& authority, RakNet::RakPeerInterface* peer, mwmp::Networking* networking,
             const HeadlessPlayerAnchorManager& anchors);
 
+        /*
+            Start of tes3mp addition
+
+            Report a melee/ranged hit that the authoritative server resolved natively (NPC/creature -> player
+            anchor) so the owning client can render the hit feedback (and mirror the attack completion). The
+            actual health change is delivered separately through ID_PLAYER_STATS_DYNAMIC.
+        */
+        void sendAttackLandedToPlayer(::Player& victimPlayer, const MWWorld::Ptr& attacker, bool ranged, float damage,
+            RakNet::RakPeerInterface* peer, mwmp::Networking* networking);
+        /*
+            End of tes3mp addition
+        */
+
         std::uint64_t getAuthoritativeDeltaCount() const { return mAuthoritativeDeltaCount; }
         AuthoritativeDeltaStats getAuthoritativeDeltaStats() const { return mDeltaStats; }
         AuthoritativeDeltaStats consumeAuthoritativeDeltaStats(std::uint64_t& outTotalDeltas);
@@ -93,6 +106,7 @@ namespace TES3MPHeadless
 
         MWWorld::World& mWorld;
         std::unordered_map<const MWWorld::LiveCellRefBase*, ActorSnapshot> mActorSnapshots;
+        std::unordered_map<int, const MWWorld::LiveCellRefBase*> mActorSnapshotsByMpNum;
         std::unordered_map<const MWWorld::LiveCellRefBase*, std::uint64_t> mContainerSnapshots;
         std::uint64_t mAuthoritativeDeltaCount = 0;
         AuthoritativeDeltaStats mDeltaStats;

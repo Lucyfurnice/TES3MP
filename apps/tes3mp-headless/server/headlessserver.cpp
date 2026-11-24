@@ -2,6 +2,8 @@
 
 #include "headlessconfig.hpp"
 
+#include "../rangeddebug.hpp"
+
 #include <RakPeer.h>
 #include <RakPeerInterface.h>
 
@@ -76,6 +78,7 @@
 #include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadstat.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadweap.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/rng.hpp>
@@ -945,6 +948,13 @@ namespace TES3MPHeadless
                                     bountyPkt->Send(true);
                                 }
                             }
+
+                            // A "Go to Jail" choice ran World::goToJail() phase one synchronously (it clears the
+                            // bounty and flags mPlayerInJail). Its second phase only teleports via the GUI
+                            // WindowManager, which the headless server lacks, so replicate the jail relocation
+                            // here.
+                            if (mWorld.isPlayerInJail())
+                                applyJailTeleport(player, playerAnchor, prevBounty);
                         }
                     }
                     break;
@@ -980,6 +990,79 @@ namespace TES3MPHeadless
         }
 
         return true;
+    }
+
+    void HeadlessServer::applyJailTeleport(::Player& player, const MWWorld::Ptr& playerAnchor, int bounty)
+    {
+        /*
+            Start of tes3mp change (major)
+
+            In singleplayer World::goToJail() finishes by asking the (GUI) WindowManager to run JailScreen,
+            which teleports the player to the nearest "prisonmarker", rests the computed number of days and
+            rolls the skill changes. The headless WindowManager has no JailScreen, so that second phase did
+            nothing: the dialogue choice ran, the bounty was cleared, but nobody was ever moved. Replicate the
+            same end state here on the authoritative side. The day count matches World::goToJail exactly.
+        */
+        int days = 1;
+        if (const ESM::GameSetting* setting
+            = mWorld.getStore().get<ESM::GameSetting>().search("iDaysinPrisonMod"))
+        {
+            const int mod = std::max(1, setting->mValue.getInteger());
+            days = std::max(1, bounty / mod);
+        }
+
+        // Route the dummy local player to the closest prison marker. It mirrors the active player, so its
+        // resulting cell/position is the destination we replicate. Unlike ActionTeleport on an arbitrary
+        // actor, the player branch sends no stray ActorCellChange packets.
+        MWWorld::Ptr worldPlayer = mWorld.getPlayerPtr();
+        if (!worldPlayer.isEmpty())
+            mWorld.teleportToClosestMarker(worldPlayer, ESM::RefId::stringRefId("prisonmarker"));
+
+        worldPlayer = mWorld.getPlayerPtr();
+        if (worldPlayer.isEmpty() || !worldPlayer.isInCell())
+        {
+            Log(Debug::Warning) << "[HeadlessServer] Jail teleport failed for pid=" << player.getId()
+                                << ": no prison marker found";
+            return;
+        }
+
+        player.cell = worldPlayer.getCell()->getCell()->getEsm3();
+        player.position = worldPlayer.getRefData().getPosition();
+
+        // Force the client into the prison cell and position, and keep our stored authoritative cell/pos in
+        // sync so syncPlayersToWorld does not snap the anchor back to the pre-jail location.
+        const std::string cellDesc = worldPlayer.getCell()->getCell()->getId().serializeText();
+        CellFunctions::SetCell(player.getId(), cellDesc.c_str());
+        CellFunctions::SendCell(player.getId());
+        PositionFunctions::SetPos(
+            player.getId(), player.position.pos[0], player.position.pos[1], player.position.pos[2]);
+        PositionFunctions::SetRot(player.getId(), player.position.rot[0], player.position.rot[2]);
+        PositionFunctions::SendPos(player.getId());
+
+        // Stop the arresting guard(s) from chasing/escalating as the anchor leaves the cell.
+        if (!playerAnchor.isEmpty())
+            mCombat.calmGuardsForAnchor(playerAnchor);
+
+        // The server already relocated the player, so tell the client's jail screen not to teleport it again;
+        // it still shows the progress window, rests and rolls the skill changes.
+        if (mwmp::PlayerPacket* jailPkt = mNetworking->getPlayerPacketController()->GetPacket(ID_PLAYER_JAIL))
+        {
+            player.jailDays = days;
+            player.ignoreJailTeleportation = true;
+            player.ignoreJailSkillIncreases = false;
+            player.jailProgressText = "";
+            player.jailEndText = "";
+            jailPkt->setPlayer(&player);
+            jailPkt->Send(player.guid);
+        }
+
+        Log(Debug::Info) << "[HeadlessServer] Jailed pid=" << player.getId() << " (" << player.npc.mName
+                         << ") days=" << days << " cell=" << Utils::getCellDescription(player.cell)
+                         << " pos=(" << player.position.pos[0] << ", " << player.position.pos[1] << ", "
+                         << player.position.pos[2] << ")";
+        /*
+            End of tes3mp change (major)
+        */
     }
 
     void HeadlessServer::syncPlayersToWorld()
@@ -1033,9 +1116,53 @@ namespace TES3MPHeadless
                 if (mCombat.hasLastHealth(pid) && anchorHealth < mCombat.getLastHealth(pid) - 0.01f
                     && !player->creatureStats.mDead)
                 {
+                    /*
+                        Start of tes3mp addition
+
+                        Resolve the aggressor before dispatching the health change: dispatchAnchorHealthAndDeath
+                        clears the anchor's hit-attempt actor on a lethal hit, so reading it afterwards would lose
+                        the killer. Also mirror the landed attack to the owning client so it renders the hit
+                        feedback and sees the ranged attack complete (success: true).
+                    */
+                    MWWorld::Ptr aggressor;
+                    {
+                        const ESM::RefNum aggressorNum = anchorStats.getHitAttemptActor();
+                        if (aggressorNum.isSet())
+                            aggressor
+                                = MWBase::Environment::get().getWorldModel()->getPtr(aggressorNum);
+                    }
+                    const float hpDelta = std::max(0.f, mCombat.getLastHealth(pid) - anchorHealth);
+
                     if (mCombat.dispatchAnchorHealthAndDeath(
-                            *player, anchor, anchorStats, mCombat.getLastHealth(pid), mNetworking.get()))
+                            *player, anchor, anchorStats, mCombat.getLastHealth(pid), mNetworking.get(), mAnchors))
                         mDialogue.setResistedArrest(pid, false);
+
+                    if (!aggressor.isEmpty() && aggressor != anchor && aggressor.getClass().isActor()
+                        && !mAnchors.isPlayerAnchorPtr(aggressor))
+                    {
+                        bool ranged = false;
+                        if (aggressor.getClass().hasInventoryStore(aggressor))
+                        {
+                            const MWWorld::InventoryStore& inv = aggressor.getClass().getInventoryStore(aggressor);
+                            auto weapIt = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                            if (weapIt != inv.end() && weapIt->getType() == ESM::Weapon::sRecordId)
+                            {
+                                const int weapClass
+                                    = MWMechanics::getWeaponType(weapIt->get<ESM::Weapon>()->mBase->mData.mType)
+                                          ->mWeaponClass;
+                                ranged = (weapClass == ESM::WeaponType::Ranged
+                                    || weapClass == ESM::WeaponType::Thrown);
+                            }
+                        }
+                        TES3MP_RANGED_LOG << "[RangedDebug] anchor pid=" << pid << " took " << hpDelta
+                                          << " damage from " << aggressor.getCellRef().getRefId()
+                                          << " ranged=" << (ranged ? "true" : "false");
+                        mReplication.sendAttackLandedToPlayer(
+                            *player, aggressor, ranged, hpDelta, mPeer, mNetworking.get());
+                    }
+                    /*
+                        End of tes3mp addition
+                    */
                 }
                 else
                 {
@@ -1360,11 +1487,83 @@ namespace TES3MPHeadless
                     {
                         if (!phys->getActor(mSmokeAnchor))
                             phys->addActor(mSmokeAnchor, mSmokeAnchor.getClass().getCorrectedModel(mSmokeAnchor));
+                        // Mirror HeadlessPlayerAnchorManager::ensurePhysicsActor: the smoke anchor is not simulated,
+                        // so force its broadphase AABB to match its spawn position for projectile sweeps.
+                        phys->updatePosition(mSmokeAnchor);
                     }
                     mSmokeAnchor.getClass().getCreatureStats(mSmokeAnchor).getAiSequence().clear();
                     MWMechanics::DynamicStat<float> hp(100.f);
                     mSmokeAnchor.getClass().getCreatureStats(mSmokeAnchor).setHealth(hp);
                     mSmokeAnchor.getClass().getNpcStats(mSmokeAnchor).setBounty(mSmokeBounty);
+
+                    /*
+                        Start of tes3mp addition
+
+                        --smoke-ranged arms the smoke-test actor with a bow and arrows so the ranged attack
+                        pipeline (releaseArrow -> launchProjectile -> projectileHit) is exercised, mirroring the
+                        Moonmoth archer report instead of only the melee path.
+                    */
+                    if (mConfig.mSmokeRanged && mSmokeGuard.getClass().hasInventoryStore(mSmokeGuard))
+                    {
+                        MWWorld::InventoryStore& inv = mSmokeGuard.getClass().getInventoryStore(mSmokeGuard);
+                        MWWorld::ContainerStore& store = mSmokeGuard.getClass().getContainerStore(mSmokeGuard);
+                        inv.resolve();
+                        if (inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight) != inv.end())
+                            inv.unequipSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                        if (inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition) != inv.end())
+                            inv.unequipSlot(MWWorld::InventoryStore::Slot_Ammunition);
+
+                        const ESM::RefId bowId = ESM::RefId::stringRefId("steel longbow");
+                        const ESM::RefId arrowId = ESM::RefId::stringRefId("iron arrow");
+                        // add() defaults to allowAutoEquip, which would immediately put the actor's existing
+                        // (melee) weapon back in hand. Add without auto-equip and equip the bow/arrows below.
+                        MWWorld::ContainerStoreIterator bowIt = store.add(bowId, 1, false);
+                        MWWorld::ContainerStoreIterator arrowIt = store.add(arrowId, 200, false);
+
+                        if (bowIt != store.end())
+                            inv.equip(MWWorld::InventoryStore::Slot_CarriedRight, bowIt);
+                        if (arrowIt != store.end())
+                            inv.equip(MWWorld::InventoryStore::Slot_Ammunition, arrowIt);
+
+                        /*
+                            Start of tes3mp addition
+
+                            HeadlessReplicationSystem calls InventoryStore::autoEquip() when it first snapshots an
+                            actor, which would swap the guard's default melee weapon back in for our bow. Drop every
+                            other weapon so the only auto-equip candidate is the bow we just added.
+                        */
+                        std::vector<MWWorld::Ptr> staleWeapons;
+                        for (auto it = store.begin(); it != store.end(); ++it)
+                        {
+                            if (it->getType() == ESM::Weapon::sRecordId
+                                && it->getCellRef().getRefId() != bowId && it->getCellRef().getRefId() != arrowId)
+                                staleWeapons.push_back(*it);
+                        }
+                        for (const MWWorld::Ptr& stale : staleWeapons)
+                            store.remove(stale, stale.getCellRef().getCount());
+                        /*
+                            End of tes3mp addition
+                        */
+
+                        auto equipped = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                        Log(Debug::Info) << "[SmokeTest] Armed actor=" << mSmokeGuard.getCellRef().getRefId()
+                                         << " rangedSmoke=1 equippedRight="
+                                         << (equipped != inv.end() ? equipped->getCellRef().getRefId().serializeText()
+                                                                   : std::string("<none>"));
+
+                        /*
+                            A low-level Balmora guard has almost no Marksman skill, so the upstream to-hit roll
+                            (getHitChance) turns nearly every physically-landing arrow into a "miss". Give the
+                            smoke archer a real Marksman skill so the test exercises the damage path deterministically.
+                        */
+                        MWMechanics::SkillValue marksman;
+                        marksman.setBase(100.f);
+                        mSmokeGuard.getClass().getNpcStats(mSmokeGuard).setSkill(ESM::Skill::Marksman, marksman);
+                    }
+                    /*
+                        End of tes3mp addition
+                    */
+
                     mSmokeGuard.getClass().getCreatureStats(mSmokeGuard).getAiSequence().stack(
                         MWMechanics::AiPursue(mSmokeAnchor), mSmokeGuard);
                     Log(Debug::Info) << "[SmokeTest] Spawned anchor in cell='"
@@ -1419,7 +1618,27 @@ namespace TES3MPHeadless
             if (!mSmokeWeaponDrawn && guardStats.getDrawState() == MWMechanics::DrawState::Weapon)
             {
                 mSmokeWeaponDrawn = true;
-                Log(Debug::Info) << "[SmokeTest] Guard drew weapon (DrawState::Weapon) in AiCombat";
+                std::string weaponId = "<none>";
+                std::string weaponClass = "?";
+                if (mSmokeGuard.getClass().hasInventoryStore(mSmokeGuard))
+                {
+                    const MWWorld::InventoryStore& inv = mSmokeGuard.getClass().getInventoryStore(mSmokeGuard);
+                    auto it = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                    if (it != inv.end())
+                    {
+                        weaponId = it->getCellRef().getRefId().serializeText();
+                        if (it->getType() == ESM::Weapon::sRecordId)
+                        {
+                            const int cls
+                                = MWMechanics::getWeaponType(it->get<ESM::Weapon>()->mBase->mData.mType)->mWeaponClass;
+                            weaponClass = cls == ESM::WeaponType::Ranged  ? "Ranged"
+                                : cls == ESM::WeaponType::Thrown           ? "Thrown"
+                                                                           : "Melee";
+                        }
+                    }
+                }
+                Log(Debug::Info) << "[SmokeTest] Guard drew weapon (DrawState::Weapon) in AiCombat weapon=" << weaponId
+                                 << " class=" << weaponClass;
             }
             const bool attacking = guardStats.getAttackingOrSpell();
             if (attacking != mSmokeLastAttacking)

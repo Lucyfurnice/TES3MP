@@ -118,6 +118,7 @@ namespace TES3MPHeadless
         serverCfg.mHasPortOverride = mConfig.mHasPortOverride;
         serverCfg.mAuthority.authoritativeMode = mConfig.mAuthoritative;
         serverCfg.mSmokeArrestCombat = mConfig.mSmokeArrestCombat;
+        serverCfg.mSmokeRanged = mConfig.mSmokeRanged;
         mServer = std::make_unique<HeadlessServer>(mCfgMgr, *mWorld, std::move(serverCfg));
         mServer->init();
     }

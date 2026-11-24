@@ -70,6 +70,8 @@
 */
 #include "../mwphysics/projectile.hpp"
 
+#include "../../tes3mp-headless/rangeddebug.hpp"
+
 namespace
 {
     ESM::EffectList getMagicBoltData(std::vector<ESM::RefId>& projectileIDs, std::set<ESM::RefId>& sounds, float& speed,
@@ -231,10 +233,18 @@ namespace MWWorld
         state.mNode->setNodeMask(MWRender::Mask_Effect);
         state.mNode->setPosition(pos);
         state.mNode->setAttitude(orient);
-        state.mEffectAnimationTime = std::make_shared<MWRender::EffectAnimationTime>();
-        mParent->addChild(state.mNode);
 
+        /*
+            Start of tes3mp addition
+
+            Headless builds have no scene graph and never load the model, but the simulation still advances the
+            effect animation time in update(), so it must exist before we bail out. Do not attach the node to the
+            scene here: the shared code below attaches it exactly once. Attaching it twice makes removeChild() in
+            cleanupProjectile()/cleanupMagicBolt() drop only one reference, leaving the arrow or bolt rendered in
+            the world forever.
+        */
 #ifdef TES3MP_HEADLESS
+        state.mEffectAnimationTime = std::make_shared<MWRender::EffectAnimationTime>();
         (void)model;
         (void)rotate;
         (void)createLight;
@@ -242,6 +252,9 @@ namespace MWWorld
         (void)texture;
         return;
 #endif
+        /*
+            End of tes3mp addition
+        */
 
         osg::Group* attachTo = state.mNode;
 
@@ -302,11 +315,16 @@ namespace MWWorld
         state.mNode->accept(assignVisitor);
 
         MWRender::overrideFirstRootTexture(VFS::Path::toNormalized(texture), mResourceSystem, *projectile);
+
+        TES3MP_RANGED_LOG << "[RangedDebug] createModel model=" << model.value()
+                          << " scale=(" << state.mNode->getScale().x() << ", " << state.mNode->getScale().y() << ", "
+                          << state.mNode->getScale().z() << ")";
     }
 
     void ProjectileManager::update(State& state, float duration)
     {
         state.mEffectAnimationTime->addTime(duration);
+        state.mLifetime += duration;
     }
 
     void ProjectileManager::launchMagicBolt(
@@ -444,6 +462,11 @@ namespace MWWorld
         state.mProjectileId = mPhysics->addProjectile(actor, pos, model, false);
         state.mToDelete = false;
         mProjectiles.push_back(std::move(state));
+
+        TES3MP_RANGED_LOG << "[RangedDebug] launchProjectile caster=" << actor.getCellRef().getRefId()
+                          << " arrow=" << projectile.getCellRef().getRefId() << " model=" << model.value()
+                          << " pos=(" << pos.x() << ", " << pos.y() << ", " << pos.z() << ") speed=" << speed
+                          << " projectiles=" << mProjectiles.size();
     }
 
     void ProjectileManager::updateCasters()
@@ -487,7 +510,11 @@ namespace MWWorld
             auto isCleanable = [](const ProjectileManager::State& state) -> bool {
                 const float farawayThreshold = 72000.0f;
                 osg::Vec3 playerPos = MWMechanics::getPlayer().getRefData().getPosition().asVec3();
-                return (state.mNode->getPosition() - playerPos).length2() >= farawayThreshold * farawayThreshold;
+                // Also expire projectiles that never hit anything (e.g. fired through a gap in the collision
+                // geometry or straight into the sky) so they cannot accumulate forever.
+                const float maxLifetime = 30.0f;
+                return state.mLifetime >= maxLifetime
+                    || (state.mNode->getPosition() - playerPos).length2() >= farawayThreshold * farawayThreshold;
             };
 
             for (auto& projectileState : mProjectiles)
@@ -627,6 +654,14 @@ namespace MWWorld
             if (projectile->getHitWater())
                 mRendering->emitWaterRipple(hitPosition);
 
+#ifdef TES3MP_HEADLESS
+            TES3MP_RANGED_LOG << "[RangedDebug] processHits caster="
+                              << (caster.isEmpty() ? ESM::RefId() : caster.getCellRef().getRefId())
+                              << " target=" << (target.isEmpty() ? ESM::RefId() : target.getCellRef().getRefId())
+                              << " hitWater=" << (projectile->getHitWater() ? "true" : "false") << " hit=("
+                              << hitPosition.x() << ", " << hitPosition.y() << ", " << hitPosition.z() << ")";
+#endif
+
             MWMechanics::projectileHit(
                 caster, target, bow, projectileRef.getPtr(), hitPosition, projectileState.mAttackStrength);
             projectileState.mToDelete = true;
@@ -699,6 +734,9 @@ namespace MWWorld
         mParent->removeChild(state.mNode);
         mPhysics->removeProjectile(state.mProjectileId);
         state.mToDelete = true;
+        TES3MP_RANGED_LOG << "[RangedDebug] cleanupProjectile id=" << state.mProjectileId << " pos=("
+                          << state.mNode->getPosition().x() << ", " << state.mNode->getPosition().y() << ", "
+                          << state.mNode->getPosition().z() << ")";
     }
 
     void ProjectileManager::cleanupMagicBolt(ProjectileManager::MagicBoltState& state)

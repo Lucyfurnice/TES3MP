@@ -20,8 +20,10 @@
 #include <apps/openmw/mwworld/inventorystore.hpp>
 #include <apps/openmw/mwworld/scene.hpp>
 #include <apps/openmw/mwworld/worldimp.hpp>
+#include <apps/openmw/mwworld/worldmodel.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadweap.hpp>
+#include <components/esm3/refnum.hpp>
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
@@ -49,8 +51,9 @@ namespace TES3MPHeadless
         (void)pos;
         if (!mPvpEnabled)
             return false;
+        // An unresolved cell cannot be checked against the PvP-free lists, so treat it as not allowed.
         if (!cell || !cell->getCell())
-            return true;
+            return false;
 
         std::string cellName(cell->getCell()->getNameId());
         if (const std::size_t instPos = cellName.find(" - Instance for "); instPos != std::string::npos)
@@ -182,21 +185,39 @@ namespace TES3MPHeadless
             }
         }
 
-        const MWPhysics::RayCastingInterface* rayCasting = mWorld.getRayCasting();
-        if (rayCasting && !rayCasting->getLineOfSight(attackerPtr, victimPtr))
+        /*
+            Start of tes3mp change
+
+            A ranged attack has already had its full trajectory simulated by the client that fired
+            it, which only reports a hit (with the struck target) once the arrow has physically
+            reached the victim. Re-running the server's line-of-sight gate on top of that is both
+            redundant and fragile: it is evaluated from the server's copy of the attacker anchor and
+            victim transforms, which lag behind whenever the player stops feeding position packets
+            (LocalPlayer::updatePosition only sends while moving/turning), so a perfectly valid
+            arrow that lands while standing still gets rejected. Melee keeps the check because it
+            meaningfully validates reach.
+        */
+        if (attack.type != mwmp::Attack::RANGED)
         {
-            const osg::Vec3f from = attackerPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 96.f);
-            const osg::Vec3f to = victimPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 64.f);
-            const MWPhysics::RayCastingResult los = rayCasting->castRay(
-                from, to, { attackerPtr }, {}, MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap);
-            if (los.mHit && los.mHitObject != victimPtr)
+            const MWPhysics::RayCastingInterface* rayCasting = mWorld.getRayCasting();
+            if (rayCasting && !rayCasting->getLineOfSight(attackerPtr, victimPtr))
             {
-                Log(Debug::Verbose) << "Authoritative combat blocked obstructed attack from " << player.npc.mName;
-                attack.isHit = false;
-                attack.damage = 0.f;
-                return false;
+                const osg::Vec3f from = attackerPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 96.f);
+                const osg::Vec3f to = victimPtr.getRefData().getPosition().asVec3() + osg::Vec3f(0.f, 0.f, 64.f);
+                const MWPhysics::RayCastingResult los = rayCasting->castRay(from, to, { attackerPtr }, {},
+                    MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap);
+                if (los.mHit && los.mHitObject != victimPtr)
+                {
+                    Log(Debug::Verbose) << "Authoritative combat blocked obstructed attack from " << player.npc.mName;
+                    attack.isHit = false;
+                    attack.damage = 0.f;
+                    return false;
+                }
             }
         }
+        /*
+            End of tes3mp change
+        */
 
         const float strength = std::clamp(attack.attackStrength > 0.f ? attack.attackStrength : 0.75f, 0.f, 1.f);
         MWMechanics::applyFatigueLoss(attackerPtr, weapon, strength);
@@ -217,7 +238,36 @@ namespace TES3MPHeadless
 
         float damage = 0.f;
         bool healthDmg = true;
-        if (!weapon.isEmpty())
+        if (attack.type == mwmp::Attack::RANGED && !weapon.isEmpty())
+        {
+            /*
+                Start of tes3mp change
+
+                Ranged damage is the sum of the bow/crossbow (chop rating of the carried-right weapon)
+                and the ammunition (chop rating of the equipped arrow/bolt), matching
+                MWMechanics::projectileHit. Previously only the bow was used, so every server-authoritative
+                arrow was missing the arrow's contribution to damage.
+            */
+            const auto& bowData = weapon.get<ESM::Weapon>()->mBase->mData.mChop;
+            damage = bowData[0] + (bowData[1] - bowData[0]) * strength;
+
+            MWWorld::Ptr ammo;
+            MWWorld::ContainerStoreIterator ammoIt = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
+            if (ammoIt != inv.end() && ammoIt->getType() == ESM::Weapon::sRecordId)
+            {
+                ammo = *ammoIt;
+                const auto& ammoData = ammo.get<ESM::Weapon>()->mBase->mData.mChop;
+                damage += ammoData[0] + (ammoData[1] - ammoData[0]) * strength;
+            }
+
+            MWMechanics::adjustWeaponDamage(damage, weapon, attackerPtr);
+            // Match projectileHit: normal-weapon resistance is evaluated against the projectile (arrow).
+            MWMechanics::resistNormalWeapon(victimPtr, attackerPtr, ammo.isEmpty() ? weapon : ammo, damage);
+            /*
+                End of tes3mp change
+            */
+        }
+        else if (!weapon.isEmpty())
         {
             const auto& weapData = weapon.get<ESM::Weapon>()->mBase->mData;
             const unsigned char* atkData = (attack.attackAnimation == "slash")
@@ -239,7 +289,9 @@ namespace TES3MPHeadless
             damage *= std::max(0.25f, reduction);
         }
 
-        if (MWMechanics::blockMeleeAttack(attackerPtr, victimPtr, weapon, damage, strength))
+        // Ranged attacks are not blockable in MWMechanics::projectileHit, so neither are they here.
+        if (attack.type == mwmp::Attack::MELEE
+            && MWMechanics::blockMeleeAttack(attackerPtr, victimPtr, weapon, damage, strength))
         {
             attack.block = true;
             damage = 0.f;
@@ -254,6 +306,17 @@ namespace TES3MPHeadless
             targetIsPlayer ? MWWorld::Ptr() : attackerPtr, true,
             attack.type == mwmp::Attack::RANGED ? MWMechanics::DamageSourceType::Ranged
                                                 : MWMechanics::DamageSourceType::Melee);
+        if (targetIsPlayer)
+        {
+            /*
+                Start of tes3mp change
+
+                The attacker was deliberately suppressed above so a PvP hit never triggers NPC crime. That also
+                skips Npc::onHit's own aggressor bookkeeping, so record it here (we already passed the PvP zone
+                check) to let the attacker's summoned creatures join the fight through Actors::engageCombat().
+            */
+            attackerPtr.getClass().getCreatureStats(attackerPtr).setHitAttemptActor(victimPtr.getCellRef().getRefNum());
+        }
         if (!targetIsPlayer)
         {
             const MWMechanics::CreatureStats& aStats = attackerPtr.getClass().getCreatureStats(attackerPtr);
@@ -336,7 +399,8 @@ namespace TES3MPHeadless
     }
 
     bool HeadlessCombatController::dispatchAnchorHealthAndDeath(::Player& player, MWWorld::Ptr& anchor,
-        MWMechanics::CreatureStats& anchorStats, float prevHealth, mwmp::Networking* networking)
+        MWMechanics::CreatureStats& anchorStats, float prevHealth, mwmp::Networking* networking,
+        const HeadlessPlayerAnchorManager& anchors)
     {
         const unsigned short pid = player.getId();
         const float anchorHealth = anchorStats.getHealth().getCurrent();
@@ -360,6 +424,44 @@ namespace TES3MPHeadless
             player.creatureStats.mDead = true;
             player.deathState = 1;
             player.killer = {};
+
+            /*
+                Start of tes3mp change
+
+                Attribute the kill to the actor that last damaged this player anchor. Previously the killer
+                was always left empty, so ID_PLAYER_DEATH (and the server scripts handling it) reported an
+                NPC/creature kill as a suicide. The anchor keeps its aggressor in
+                CreatureStats::mHitAttemptActor (preserved by Actors::update while the anchor is dead) until
+                the kill is consumed here.
+            */
+            const ESM::RefNum killerNum = anchorStats.getHitAttemptActor();
+            if (killerNum.isSet())
+            {
+                const MWWorld::Ptr killer = MWBase::Environment::get().getWorldModel()->getPtr(killerNum);
+                if (!killer.isEmpty() && killer.getClass().isActor() && killer != anchor)
+                {
+                    if (const std::optional<unsigned short> killerPid = anchors.resolvePidFromPtr(killer))
+                    {
+                        if (::Player* killerPlayer = Players::getPlayer(*killerPid))
+                        {
+                            player.killer.isPlayer = true;
+                            player.killer.guid = killerPlayer->guid;
+                        }
+                    }
+                    else
+                    {
+                        player.killer.isPlayer = false;
+                        player.killer.refId = killer.getCellRef().getRefId().serializeText();
+                        player.killer.refNum = killer.getCellRef().getRefNum().mIndex;
+                        player.killer.mpNum = killer.getCellRef().getMpNum();
+                        player.killer.name = killer.getClass().getName(killer);
+                    }
+                }
+            }
+            /*
+                End of tes3mp change
+            */
+
             if (auto* winMgr
                 = dynamic_cast<HeadlessWindowManager*>(&*MWBase::Environment::get().getWindowManager()))
                 winMgr->setPlayerDialogueOpen(pid, false);
@@ -375,6 +477,9 @@ namespace TES3MPHeadless
                 }
             }
             Script::Call<Script::CallbackIdentity("OnPlayerDeath")>(pid);
+            // Only drop the kill attribution once the death report for this kill has been emitted, so a
+            // late duplicate dispatch can never report the kill as a suicide.
+            anchorStats.setHitAttemptActor({});
             return true;
         }
         return false;

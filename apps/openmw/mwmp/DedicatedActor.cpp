@@ -235,7 +235,7 @@ void DedicatedActor::setStatsDynamic()
     MWMechanics::DynamicStat<float> value;
 
     // Resurrect this Actor if it's not supposed to be dead according to its authority
-    if (creatureStats.mDynamic[0].mCurrent > 0)
+    if (!creatureStats.mDead && creatureStats.mDynamic[0].mCurrent > 0)
         MWBase::Environment::get().getMechanicsManager()->resurrect(ptr);
 
     for (int i = 0; i < 3; ++i)
@@ -243,6 +243,19 @@ void DedicatedActor::setStatsDynamic()
         value.readState(creatureStats.mDynamic[i]);
         ptrCreatureStats->setDynamic(i, value);
     }
+
+    /*
+        Start of tes3mp change
+
+        Keep the live actor's death animation flag in sync with the authoritative one, so a
+        corpse that is already supposed to be finished (instant death / lootable) does not
+        replay a full death animation before it can be looted.
+    */
+    if (creatureStats.mDead && creatureStats.mDeathAnimationFinished)
+        ptrCreatureStats->setDeathAnimationFinished(true);
+    /*
+        End of tes3mp change
+    */
 }
 
 void DedicatedActor::setEquipment()

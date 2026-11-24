@@ -48,6 +48,10 @@
     End of tes3mp addition
 */
 
+#ifdef TES3MP_HEADLESS
+#include "../../tes3mp-headless/rangeddebug.hpp"
+#endif
+
 namespace
 {
 
@@ -261,6 +265,14 @@ namespace MWMechanics
     void projectileHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, MWWorld::Ptr weapon,
         const MWWorld::Ptr& projectile, const osg::Vec3f& hitPosition, float attackStrength)
     {
+#ifdef TES3MP_HEADLESS
+        TES3MP_RANGED_LOG << "[RangedDebug] projectileHit attacker="
+                          << (attacker.isEmpty() ? ESM::RefId() : attacker.getCellRef().getRefId())
+                          << " victim=" << (victim.isEmpty() ? ESM::RefId() : victim.getCellRef().getRefId())
+                          << " projectile="
+                          << (projectile.isEmpty() ? ESM::RefId() : projectile.getCellRef().getRefId())
+                          << " hit=(" << hitPosition.x() << ", " << hitPosition.y() << ", " << hitPosition.z() << ")";
+#endif
         /*
             Start of tes3mp addition
 
@@ -279,6 +291,24 @@ namespace MWMechanics
         {
             localAttack->type = mwmp::Attack::RANGED;
             localAttack->isHit = true;
+
+            /*
+                Start of tes3mp change
+
+                The victim's own onHit (which would normally record the attack target and mark the
+                attack for sending) is only exercised under TES3MP_HEADLESS, so on a normal client a
+                ranged hit would otherwise produce a packet with no target and the authoritative server
+                could never apply the arrow damage. Record the target here directly.
+            */
+            if (!victim.isEmpty() && victim.getClass().isActor())
+            {
+                MechanicsHelper::assignAttackTarget(localAttack, victim);
+                localAttack->hitPosition = MechanicsHelper::getPositionFromVector(hitPosition);
+                localAttack->shouldSend = true;
+            }
+            /*
+                End of tes3mp change
+            */
         }
         /*
             End of tes3mp addition
@@ -399,6 +429,9 @@ namespace MWMechanics
             MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0, attackStrength,
                 damage, true, hitPosition, true, MWMechanics::DamageSourceType::Ranged);
 #ifdef TES3MP_HEADLESS
+            TES3MP_RANGED_LOG << "[RangedDebug] projectileHit damage victim="
+                              << (victim.isEmpty() ? ESM::RefId() : victim.getCellRef().getRefId())
+                              << " damage=" << damage;
             if (damage > 0.f)
             {
                 const ESM::RefId weaponId = weapon.isEmpty() ? ESM::RefId() : weapon.getCellRef().getRefId();

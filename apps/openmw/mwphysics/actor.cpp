@@ -111,8 +111,20 @@ namespace MWPhysics
                 mRotation = baseNode->getAttitude();
         }
 
-        addCollisionMask(getCollisionMask());
+        /*
+            Start of tes3mp addition
+
+            Set the collision object's world transform / scale *before* registering it with the broadphase. Bullet
+            computes a proxy's AABB at addCollisionObject() time, so adding first and transforming afterwards leaves
+            the proxy's AABB stuck at the identity origin until the actor is next simulated. Player anchors are not
+            simulated (no mechanics/animation actor), so their stale AABB made them invisible to projectile
+            convexSweepTest raycasts, i.e. NPC arrows flew straight through the anchor without registering a hit.
+        */
         updateCollisionObjectPositionUnsafe();
+        addCollisionMask(getCollisionMask());
+        /*
+            End of tes3mp addition
+        */
     }
 
     Actor::~Actor()

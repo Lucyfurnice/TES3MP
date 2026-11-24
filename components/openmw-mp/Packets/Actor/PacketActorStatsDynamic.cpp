@@ -14,5 +14,18 @@ void PacketActorStatsDynamic::Actor(BaseActor &actor, bool send)
 {
     RW(actor.creatureStats.mDynamic, send);
 
+    /*
+        Start of tes3mp change
+
+        Replicate the death flags alongside the dynamic stats. Without these, the shadow
+        SimpleCreatureStats on the receiving side is left uninitialised (or stale), and a
+        stats packet can silently resurrect an actor whose ID_ACTOR_DEATH was already applied.
+    */
+    RW(actor.creatureStats.mDead, send);
+    RW(actor.creatureStats.mDeathAnimationFinished, send);
+    /*
+        End of tes3mp change
+    */
+
     actor.hasStatsDynamicData = true;
 }

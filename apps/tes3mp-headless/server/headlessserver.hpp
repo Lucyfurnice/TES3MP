@@ -57,6 +57,7 @@ namespace TES3MPHeadless
         bool mHasPortOverride = false;
         mwmp::ServerAuthorityConfig mAuthority;
         bool mSmokeArrestCombat = false;
+        bool mSmokeRanged = false;
     };
 
     /// Bridges tes3mp-server (RakNet, PacketController, Player/Cell registries, and LuaJIT ScriptController)
@@ -136,6 +137,10 @@ namespace TES3MPHeadless
         void handleServerObjectEvent(unsigned char packetId, const mwmp::BaseObjectList& objectList);
         void handleServerActorAI(const mwmp::BaseActorList& actorList);
         void stepSmokeArrestCombat();
+
+        /// Relocate a player and their anchor to the nearest prison marker after a Go-to-Jail dialogue
+        /// choice, replicating the new cell/position to the client and clearing guard combat.
+        void applyJailTeleport(::Player& player, const MWWorld::Ptr& playerAnchor, int bounty);
 
         Files::ConfigurationManager& mCfgMgr;
         MWWorld::World& mWorld;

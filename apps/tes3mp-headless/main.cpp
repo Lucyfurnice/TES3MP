@@ -76,6 +76,8 @@ namespace
             "Log per-phase tick timing breakdown (pollNetwork, World, Mechanics, Lua, broadcast)");
         add("smoke-arrest-combat", bpo::bool_switch()->default_value(false),
             "Run synthetic Balmora guard AiPursue -> Resist Arrest -> AiCombat smoke test");
+        add("smoke-ranged", bpo::bool_switch()->default_value(false),
+            "Arm the smoke-test actor with a bow and arrows so the ranged attack pipeline is exercised");
         add("random-seed", bpo::value<unsigned int>()->default_value(0),
             "RNG seed (0 = time-based/default)");
         add("script-blacklist-warnings", bpo::value<int>()->default_value(0),
@@ -147,6 +149,7 @@ namespace
         config.mAuthoritative = variables["authoritative"].as<bool>();
         config.mProfileTicks = variables["profile-ticks"].as<bool>();
         config.mSmokeArrestCombat = variables["smoke-arrest-combat"].as<bool>();
+        config.mSmokeRanged = variables["smoke-ranged"].as<bool>();
         config.mRandomSeed = variables["random-seed"].as<unsigned int>();
         config.mWarningsMode = variables["script-blacklist-warnings"].as<int>();
 

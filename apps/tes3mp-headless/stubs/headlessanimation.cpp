@@ -10,6 +10,7 @@
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/inventorystore.hpp>
 #include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadweap.hpp>
 #include <components/esm3/loadrace.hpp>
 #include <components/misc/resourcehelpers.hpp>
@@ -20,12 +21,20 @@
 #include <components/sceneutil/lightcommon.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 #include <components/sceneutil/skeleton.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 
+#include <apps/openmw/mwmechanics/character.hpp>
+
+#include "../rangeddebug.hpp"
+
 #include <osg/MatrixTransform>
+#include <osg/Vec3f>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace MWRender
 {
@@ -48,6 +57,94 @@ namespace MWRender
     {
         osg::ref_ptr<const SceneUtil::KeyframeHolder> mKeyframes;
     };
+
+    namespace
+    {
+        // Mirrors OpenMW's text-key matching helper: verifies that a key starts
+        // with "<s1><s2><s3>" (s2 is normally ": ").
+        bool equalsParts(std::string_view value, std::string_view s1, std::string_view s2, std::string_view s3 = {})
+        {
+            if (value.starts_with(s1))
+            {
+                value = value.substr(s1.size());
+                if (value.starts_with(s2))
+                    return value.substr(s2.size()) == s3;
+            }
+            return false;
+        }
+
+        // Replicates MWRender::calcAnimVelocity() from apps/openmw/mwrender/animation.cpp.
+        float calcAnimVelocity(const SceneUtil::TextKeyMap& keys, const SceneUtil::KeyframeController* accumctrl,
+            const osg::Vec3f& accum, std::string_view groupname)
+        {
+            float starttime = std::numeric_limits<float>::max();
+            float stoptime = 0.0f;
+
+            // Pick the last Loop Start key and the last Loop Stop key. This is required because of broken text
+            // keys in AshVampire.nif which has *two* WalkForward: Loop Stop keys.
+            auto keyiter = keys.rbegin();
+            while (keyiter != keys.rend())
+            {
+                if (equalsParts(keyiter->second, groupname, ": start")
+                    || equalsParts(keyiter->second, groupname, ": loop start"))
+                {
+                    starttime = keyiter->first;
+                    break;
+                }
+                ++keyiter;
+            }
+            keyiter = keys.rbegin();
+            while (keyiter != keys.rend())
+            {
+                if (equalsParts(keyiter->second, groupname, ": stop"))
+                    stoptime = keyiter->first;
+                else if (equalsParts(keyiter->second, groupname, ": loop stop"))
+                {
+                    stoptime = keyiter->first;
+                    break;
+                }
+                ++keyiter;
+            }
+
+            if (accumctrl && stoptime > starttime)
+            {
+                osg::Vec3f startpos = osg::componentMultiply(accumctrl->getTranslation(starttime), accum);
+                osg::Vec3f endpos = osg::componentMultiply(accumctrl->getTranslation(stoptime), accum);
+
+                return (startpos - endpos).length() / (stoptime - starttime);
+            }
+
+            return 0.0f;
+        }
+
+        // Looks up the transform controller of the movement accumulation bone directly from the loaded keyframes.
+        // There is no scene graph in headless mode, so this mirrors MWRender::Animation::addSingleAnimSource(),
+        // which prefers "bip01" and falls back to "root bone".
+        const SceneUtil::KeyframeController* findAccumController(const SceneUtil::KeyframeHolder* keyframes)
+        {
+            if (!keyframes)
+                return nullptr;
+            const SceneUtil::KeyframeHolder::KeyframeControllerMap& controllers = keyframes->mKeyframeControllers;
+            for (const std::string_view name : { std::string_view("bip01"), std::string_view("root bone") })
+            {
+                for (const auto& [controllerName, controller] : controllers)
+                {
+                    if (Misc::StringUtils::ciEqual(controllerName, name))
+                        return controller.get();
+                }
+            }
+            return nullptr;
+        }
+
+        // Replicates MWRender::Animation::updatePosition(): accumulates the root-motion displacement of the
+        // movement bone between two animation times.
+        void accumulateRootMotion(const SceneUtil::KeyframeController* accumctrl, const osg::Vec3f& accum,
+            float oldtime, float newtime, osg::Vec3f& movement)
+        {
+            const osg::Vec3f off = osg::componentMultiply(accumctrl->getTranslation(newtime), accum);
+            movement += off - osg::componentMultiply(accumctrl->getTranslation(oldtime), accum);
+        }
+    }
 
     // ---- Helpers ----
 
@@ -168,9 +265,35 @@ namespace MWRender
         return false;
     }
 
-    bool Animation::isLoopingAnimation(std::string_view /*group*/) const
+    bool Animation::isLoopingAnimation(std::string_view group) const
     {
-        return false;
+        // In Morrowind, some animation groups are always considered looping, regardless of loop start/stop keys.
+        // To match vanilla behavior we probably only need to check this list, but we don't want to prevent modded
+        // animations with custom group names from looping either.
+        static const std::unordered_set<std::string_view> loopingAnimations = { "walkforward", "walkback", "walkleft",
+            "walkright", "swimwalkforward", "swimwalkback", "swimwalkleft", "swimwalkright", "runforward", "runback",
+            "runleft", "runright", "swimrunforward", "swimrunback", "swimrunleft", "swimrunright", "sneakforward",
+            "sneakback", "sneakleft", "sneakright", "turnleft", "turnright", "swimturnleft", "swimturnright",
+            "spellturnleft", "spellturnright", "torch", "idle", "idle2", "idle3", "idle4", "idle5", "idle6", "idle7",
+            "idle8", "idle9", "idlesneak", "idlestorm", "idleswim", "jump", "inventoryhandtohand",
+            "inventoryweapononehand", "inventoryweapontwohand", "inventoryweapontwowide" };
+        static const std::vector<std::string_view> shortGroups = MWMechanics::getAllWeaponTypeShortGroups();
+
+        if (getTextKeyTime(std::string(group) + ": loop start") >= 0)
+            return true;
+
+        // Most looping animations have variants for each weapon type shortgroup.
+        // Just remove the shortgroup instead of enumerating all of the possible animation groupnames.
+        // Make sure we pick the longest shortgroup so e.g. "bow" doesn't get picked over "crossbow".
+        std::size_t suffixLength = 0;
+        for (std::string_view suffix : shortGroups)
+        {
+            if (suffix.length() > suffixLength && group.ends_with(suffix))
+                suffixLength = suffix.length();
+        }
+        group.remove_suffix(suffixLength);
+
+        return loopingAnimations.count(group) > 0;
     }
 
     void Animation::setAccumulation(const osg::Vec3f& accum)
@@ -226,6 +349,7 @@ namespace MWRender
     {
         mStates.clear();
         mAnimSources.clear();
+        mAnimVelocities.clear();
     }
 
     void Animation::addControllers() {}
@@ -234,41 +358,70 @@ namespace MWRender
     bool Animation::reset(AnimState& state, const SceneUtil::TextKeyMap& keys, std::string_view groupname,
         std::string_view start, std::string_view stop, float startpoint, bool loopfallback)
     {
-        std::string startKey = std::string(groupname) + ": " + std::string(start);
-        std::string stopKey = std::string(groupname) + ": " + std::string(stop);
-
-        auto startIt = keys.end();
-        auto stopIt = keys.end();
-        for (auto it = keys.begin(); it != keys.end(); ++it)
+        // Look for text keys in reverse. This matters because some models (e.g. undeadwolf_2.nif) have two focus
+        // keys for a group, and the last one is supposed to be used.
+        auto groupend = keys.rbegin();
+        for (; groupend != keys.rend(); ++groupend)
         {
-            if (it->second == startKey && startIt == keys.end())
-                startIt = it;
-            if (it->second == stopKey)
-                stopIt = it;
+            if (groupend->second.starts_with(groupname) && groupend->second.compare(groupname.size(), 2, ": ") == 0)
+                break;
         }
-        if (startIt == keys.end() || stopIt == keys.end() || startIt->first == stopIt->first)
+
+        auto startkey = groupend;
+        while (startkey != keys.rend() && !equalsParts(startkey->second, groupname, ": ", start))
+            ++startkey;
+        if (startkey == keys.rend() && start == "loop start")
+        {
+            startkey = groupend;
+            while (startkey != keys.rend() && !equalsParts(startkey->second, groupname, ": start"))
+                ++startkey;
+        }
+        if (startkey == keys.rend())
             return false;
 
-        state.mStartTime = startIt->first;
-        state.mStopTime = stopIt->first;
-        state.mLoopStartTime = state.mStartTime;
-        state.mLoopStopTime = state.mStopTime;
+        auto stopkey = groupend;
+        std::size_t checkLength = groupname.size() + 2 + stop.size();
+        while (stopkey != keys.rend()
+            // We have to ignore extra garbage at the end.  The Scrib's idle3 animation has "Idle3: Stop."
+            // instead of "Idle3: Stop".
+            && !equalsParts(std::string_view{ stopkey->second }.substr(0, checkLength), groupname, ": ", stop))
+            ++stopkey;
+        if (stopkey == keys.rend())
+            return false;
+
+        if (startkey->first > stopkey->first)
+            return false;
+
+        state.mStartTime = startkey->first;
+        state.mStopTime = stopkey->first;
         if (loopfallback)
         {
-            std::string loopStart = std::string(groupname) + ": loop start";
-            std::string loopStop = std::string(groupname) + ": loop stop";
-            for (auto it = keys.begin(); it != keys.end(); ++it)
-            {
-                if (it->second == loopStart)
-                    state.mLoopStartTime = it->first;
-                else if (it->second == loopStop)
-                    state.mLoopStopTime = it->first;
-            }
+            state.mLoopStartTime = startkey->first;
+            state.mLoopStopTime = stopkey->first;
         }
-        state.setTime(state.mStartTime + (state.mStopTime - state.mStartTime) * std::clamp(startpoint, 0.f, 1.f));
-        state.mGroupname = groupname;
-        state.mStartKey = start;
-        state.mStopKey = stop;
+        else
+        {
+            state.mLoopStartTime = startkey->first;
+            state.mLoopStopTime = std::numeric_limits<float>::max();
+        }
+
+        state.setTime(state.mStartTime + ((state.mStopTime - state.mStartTime) * startpoint));
+
+        // mLoopStartTime and mLoopStopTime normally get assigned when encountering these keys while playing the
+        // animation (see handleTextKey). But if startpoint is already past these keys, or start time is == stop time,
+        // we need to assign them now.
+        auto key = groupend;
+        for (; key != startkey && key != keys.rend(); ++key)
+        {
+            if (key->first > state.getTime())
+                continue;
+
+            if (equalsParts(key->second, groupname, ": loop start"))
+                state.mLoopStartTime = key->first;
+            else if (equalsParts(key->second, groupname, ": loop stop"))
+                state.mLoopStopTime = key->first;
+        }
+
         return true;
     }
 
@@ -279,25 +432,75 @@ namespace MWRender
         if (groupname.empty())
             return;
 
-        AnimState& state = mStates[std::string(groupname)];
-        state.mPriority = priority;
-        state.mBlendMask = blendMask;
-        state.mAutoDisable = autodisable;
-        state.mSpeedMult = speedmult;
-        state.mLoopCount = loops;
-        state.mLoopingEnabled = loops > 0;
-        state.mPlaying = true;
-        state.mGroupname = groupname;
-        state.mStartKey = start;
-        state.mStopKey = stop;
+        // Any existing state for this group only updates its priority; the currently playing
+        // animation is allowed to finish (matching MWRender::Animation::play).
+        AnimStateMap::iterator foundstateiter = mStates.find(groupname);
+        if (foundstateiter != mStates.end())
+            foundstateiter->second.mPriority = priority;
 
-        bool foundKeys = false;
-        for (auto it = mAnimSources.rbegin(); it != mAnimSources.rend(); ++it)
+        // Remove all other animations at this priority, they can not play together.
+        auto stateiter = mStates.begin();
+        while (stateiter != mStates.end())
         {
-            if (*it && (*it)->mKeyframes
-                && reset(state, (*it)->mKeyframes->mTextKeys, groupname, start, stop, startpoint, loopfallback))
+            if (stateiter->second.mPriority == priority && stateiter->first != groupname)
+                stateiter = mStates.erase(stateiter);
+            else
+                ++stateiter;
+        }
+
+        if (foundstateiter != mStates.end())
+            return;
+
+        /* Look in reverse; last-inserted source has priority. */
+        AnimState state;
+        bool foundKeys = false;
+        for (auto iter = mAnimSources.rbegin(); iter != mAnimSources.rend(); ++iter)
+        {
+            if (!*iter || !(*iter)->mKeyframes)
+                continue;
+
+            const SceneUtil::TextKeyMap& textkeys = (*iter)->mKeyframes->mTextKeys;
+            if (reset(state, textkeys, groupname, start, stop, startpoint, loopfallback))
             {
-                state.mSource = *it;
+                state.mSource = *iter;
+                state.mSpeedMult = speedmult;
+                state.mLoopCount = loops;
+                state.mPlaying = (state.getTime() < state.mStopTime);
+                state.mPriority = priority;
+                state.mBlendMask = blendMask;
+                state.mAutoDisable = autodisable;
+                state.mGroupname = groupname;
+                state.mStartKey = start;
+                state.mStopKey = stop;
+                mStates[std::string{ groupname }] = state;
+
+                // If we start later than the start key, dispense the text keys we have already passed.
+                if (state.mPlaying)
+                {
+                    auto textkey = textkeys.lowerBound(state.getTime());
+                    while (textkey != textkeys.end() && textkey->first <= state.getTime())
+                    {
+                        handleTextKey(state, groupname, textkey, textkeys);
+                        ++textkey;
+                    }
+                }
+
+                if (state.getTime() >= state.mLoopStopTime && state.mLoopCount > 0)
+                {
+                    state.mLoopCount--;
+                    state.setTime(state.mLoopStartTime);
+                    state.mPlaying = true;
+                    if (state.getTime() >= state.mLoopStopTime)
+                        break;
+
+                    auto textkey = textkeys.lowerBound(state.getTime());
+                    while (textkey != textkeys.end() && textkey->first <= state.getTime())
+                    {
+                        handleTextKey(state, groupname, textkey, textkeys);
+                        ++textkey;
+                    }
+                }
+
                 foundKeys = true;
                 break;
             }
@@ -305,12 +508,26 @@ namespace MWRender
 
         if (!foundKeys)
         {
-            // Provide sane nominal timing if a headless model has no loaded .kf keyframe file.
-            state.mStartTime = 0.f;
-            state.mLoopStartTime = 0.f;
-            state.mLoopStopTime = 0.4f;
-            state.mStopTime = 0.4f;
-            state.setTime(0.4f * std::clamp(startpoint, 0.f, 1.f));
+            // Headless fallback: provide sane nominal timing when a group exists but its start/stop keys are
+            // unavailable (e.g. a model with no loaded .kf keyframe file). Without this the creature/NPC would
+            // never leave its current animation state.
+            AnimState& fallback = mStates[std::string{ groupname }];
+            fallback.mSource = nullptr;
+            fallback.mPriority = priority;
+            fallback.mBlendMask = blendMask;
+            fallback.mAutoDisable = autodisable;
+            fallback.mSpeedMult = speedmult;
+            fallback.mLoopCount = loops;
+            fallback.mLoopingEnabled = loops > 0;
+            fallback.mGroupname = groupname;
+            fallback.mStartKey = start;
+            fallback.mStopKey = stop;
+            fallback.mStartTime = 0.f;
+            fallback.mLoopStartTime = 0.f;
+            fallback.mLoopStopTime = 0.4f;
+            fallback.mStopTime = 0.4f;
+            fallback.setTime(0.4f * std::clamp(startpoint, 0.f, 1.f));
+            fallback.mPlaying = true;
         }
     }
 
@@ -342,7 +559,15 @@ namespace MWRender
     {
         auto it = mStates.find(groupname);
         if (it == mStates.end())
+        {
+            if (complete)
+                *complete = 0.0f;
+            if (speedmult)
+                *speedmult = 0.0f;
+            if (loopcount)
+                *loopcount = 0;
             return false;
+        }
         if (complete)
             *complete = it->second.getCompletion();
         if (speedmult)
@@ -364,8 +589,15 @@ namespace MWRender
 
     float Animation::getStartTime(const std::string& groupname) const
     {
-        auto it = mStates.find(groupname);
-        return it == mStates.end() ? 0.f : it->second.mStartTime;
+        for (auto it = mAnimSources.rbegin(); it != mAnimSources.rend(); ++it)
+        {
+            if (!*it || !(*it)->mKeyframes)
+                continue;
+            const auto found = (*it)->mKeyframes->mTextKeys.findGroupStart(groupname);
+            if (found != (*it)->mKeyframes->mTextKeys.end())
+                return found->first;
+        }
+        return -1.f;
     }
 
     float Animation::getTextKeyTime(std::string_view textKey) const
@@ -376,7 +608,7 @@ namespace MWRender
                 continue;
             for (const auto& [time, key] : (*it)->mKeyframes->mTextKeys)
             {
-                if (key == textKey)
+                if (key.starts_with(textKey))
                     return time;
             }
         }
@@ -386,7 +618,9 @@ namespace MWRender
     float Animation::getCurrentTime(std::string_view groupname) const
     {
         auto it = mStates.find(groupname);
-        return it == mStates.end() ? 0.f : it->second.getTime();
+        if (it == mStates.end())
+            return -1.f;
+        return it->second.getTime();
     }
 
     void Animation::disable(std::string_view groupname)
@@ -396,71 +630,169 @@ namespace MWRender
             mStates.erase(it);
     }
 
-    float Animation::getVelocity(std::string_view /*groupname*/) const
+    float Animation::getVelocity(std::string_view groupname) const
     {
-        return 0.f;
+        auto found = mAnimVelocities.find(groupname);
+        if (found != mAnimVelocities.end())
+            return found->second;
+
+        // Look in reverse; last-inserted source has priority.
+        auto animsrc = mAnimSources.rbegin();
+        for (; animsrc != mAnimSources.rend(); ++animsrc)
+        {
+            if (*animsrc && (*animsrc)->mKeyframes && (*animsrc)->mKeyframes->mTextKeys.hasGroupStart(groupname))
+                break;
+        }
+        if (animsrc == mAnimSources.rend())
+            return 0.0f;
+
+        float velocity = 0.0f;
+        if (const SceneUtil::KeyframeController* controller = findAccumController((*animsrc)->mKeyframes.get()))
+            velocity = calcAnimVelocity((*animsrc)->mKeyframes->mTextKeys, controller, mAccumulate, groupname);
+
+        // If there's no usable velocity in this source, keep looking in the lower-priority sources.
+        if (!(velocity > 1.0f))
+        {
+            auto animiter = mAnimSources.rbegin();
+            while (animiter != mAnimSources.rend() && *animiter != *animsrc)
+                ++animiter;
+
+            while (!(velocity > 1.0f) && ++animiter != mAnimSources.rend())
+            {
+                if (!*animiter || !(*animiter)->mKeyframes)
+                    continue;
+                if (const SceneUtil::KeyframeController* controller = findAccumController((*animiter)->mKeyframes.get()))
+                    velocity = calcAnimVelocity((*animiter)->mKeyframes->mTextKeys, controller, mAccumulate, groupname);
+            }
+        }
+
+        mAnimVelocities.emplace(std::string(groupname), velocity);
+
+        return velocity;
     }
 
-    void Animation::handleTextKey(AnimState& /*state*/, std::string_view groupname,
+    void Animation::handleTextKey(AnimState& state, std::string_view groupname,
         SceneUtil::TextKeyMap::ConstIterator key, const SceneUtil::TextKeyMap& map)
     {
+        std::string_view evt = key->second;
+
+        if (evt.starts_with(groupname) && evt.substr(groupname.size()).starts_with(": "))
+        {
+            size_t off = groupname.size() + 2;
+            if (evt.substr(off) == "loop start")
+                state.mLoopStartTime = key->first;
+            else if (evt.substr(off) == "loop stop")
+                state.mLoopStopTime = key->first;
+        }
+
         if (mTextKeyListener)
             mTextKeyListener->handleTextKey(groupname, key, map);
     }
 
     osg::Vec3f Animation::runAnimation(float duration)
     {
-        std::vector<std::string> groupNames;
-        groupNames.reserve(mStates.size());
-        for (const auto& [name, state] : mStates)
-        {
-            if (state.mPlaying)
-                groupNames.push_back(name);
-        }
+        static const SceneUtil::TextKeyMap sEmptyTextKeys;
 
-        for (const std::string& groupName : groupNames)
+        // Determine which animation state drives root motion: the highest-priority state affecting blend mask 0,
+        // mirroring MWRender::Animation::resetActiveGroups(). Without a scene graph we look up its accumulation-root
+        // transform controller directly from the loaded keyframes. The shared_ptr is captured by value so it stays
+        // valid even if the state is erased during the loop below.
+        const AnimState* movementState = nullptr;
+        for (const auto& stateEntry : mStates)
         {
-            auto it = mStates.find(groupName);
-            if (it == mStates.end() || !it->second.mPlaying)
+            const AnimState& state = stateEntry.second;
+            if (!state.blendMaskContains(0))
                 continue;
+            if (movementState == nullptr
+                || movementState->mPriority[static_cast<BoneGroup>(0)]
+                    < state.mPriority[static_cast<BoneGroup>(0)])
+                movementState = &state;
+        }
+        std::shared_ptr<float> movementTimePtr = movementState ? movementState->mTime : nullptr;
+        const SceneUtil::KeyframeController* accumCtrl = (movementState && movementState->mSource)
+            ? findAccumController(movementState->mSource->mKeyframes.get())
+            : nullptr;
 
-            const float oldTime = it->second.getTime();
-            float newTime = oldTime + duration * it->second.mSpeedMult;
-            if (!it->second.shouldLoop() && newTime > it->second.mStopTime)
-                newTime = it->second.mStopTime;
-            it->second.setTime(newTime);
+        osg::Vec3f movement(0.f, 0.f, 0.f);
 
-            auto src = it->second.mSource;
-            if (src && src->mKeyframes && mTextKeyListener)
+        AnimStateMap::iterator stateiter = mStates.begin();
+        while (stateiter != mStates.end())
+        {
+            AnimState& state = stateiter->second;
+            if (mPlayScriptedOnly && !state.mPriority.contains(MWMechanics::Priority_Scripted))
             {
-                const auto& keys = src->mKeyframes->mTextKeys;
-                for (auto kit = keys.begin(); kit != keys.end(); ++kit)
+                ++stateiter;
+                continue;
+            }
+
+            const SceneUtil::TextKeyMap& textkeys
+                = state.mSource && state.mSource->mKeyframes ? state.mSource->mKeyframes->mTextKeys : sEmptyTextKeys;
+            auto textkey = textkeys.upperBound(state.getTime());
+
+            float timepassed = duration * state.mSpeedMult;
+            while (state.mPlaying)
+            {
+                if (!state.shouldLoop())
                 {
-                    if (kit->first > oldTime && kit->first <= newTime && kit->second.starts_with(groupName))
+                    float targetTime = state.getTime() + timepassed;
+                    if (textkey == textkeys.end() || textkey->first > targetTime)
                     {
-                        mTextKeyListener->handleTextKey(groupName, kit, keys);
+                        if (accumCtrl && state.mTime == movementTimePtr)
+                            accumulateRootMotion(accumCtrl, mAccumulate, state.getTime(), targetTime, movement);
+                        state.setTime(std::min(targetTime, state.mStopTime));
+                    }
+                    else
+                    {
+                        if (accumCtrl && state.mTime == movementTimePtr)
+                            accumulateRootMotion(accumCtrl, mAccumulate, state.getTime(), textkey->first, movement);
+                        state.setTime(textkey->first);
+                    }
+
+                    state.mPlaying = (state.getTime() < state.mStopTime);
+                    timepassed = targetTime - state.getTime();
+
+                    while (textkey != textkeys.end() && textkey->first <= state.getTime())
+                    {
+                        handleTextKey(state, stateiter->first, textkey, textkeys);
+                        ++textkey;
                     }
                 }
+                if (state.shouldLoop())
+                {
+                    state.mLoopCount--;
+                    state.setTime(state.mLoopStartTime);
+                    state.mPlaying = true;
+
+                    textkey = textkeys.lowerBound(state.getTime());
+                    while (textkey != textkeys.end() && textkey->first <= state.getTime())
+                    {
+                        handleTextKey(state, stateiter->first, textkey, textkeys);
+                        ++textkey;
+                    }
+
+                    if (state.getTime() >= state.mLoopStopTime)
+                        break;
+                }
+
+                if (timepassed <= 0.0f)
+                    break;
             }
 
-            it = mStates.find(groupName);
-            if (it == mStates.end() || !it->second.mPlaying)
-                continue;
-
-            AnimState& state = it->second;
-            if (state.shouldLoop())
-            {
-                --state.mLoopCount;
-                state.setTime(state.mLoopStartTime);
-            }
-            else if (state.getTime() >= state.mStopTime)
-            {
-                state.mPlaying = false;
-                if (state.mAutoDisable)
-                    mStates.erase(it);
-            }
+            if (!state.mPlaying && state.mAutoDisable)
+                stateiter = mStates.erase(stateiter);
+            else
+                ++stateiter;
         }
-        return osg::Vec3f(0.f, 0.f, 0.f);
+
+        updateEffects();
+
+        // When the legs are yawed (side movement / turning), the accumulated movement is rotated with them.
+        // This mirrors MWRender::Animation::runAnimation().
+        const float epsilon = 0.001f;
+        if (std::abs(mLegsYawRadians) > epsilon)
+            movement = osg::Quat(mLegsYawRadians, osg::Vec3f(0, 0, 1)) * movement;
+
+        return movement;
     }
 
     void Animation::setLoopingEnabled(std::string_view groupname, bool enabled)
@@ -515,11 +847,6 @@ namespace MWRender
                 result |= MWWorld::MovementDirectionFlag_Left;
             if (hasAnimation(std::string(prefix) + "right"))
                 result |= MWWorld::MovementDirectionFlag_Right;
-        }
-        if (result == 0)
-        {
-            result = MWWorld::MovementDirectionFlag_Forward | MWWorld::MovementDirectionFlag_Back
-                | MWWorld::MovementDirectionFlag_Left | MWWorld::MovementDirectionFlag_Right;
         }
         return result;
     }
@@ -609,7 +936,35 @@ namespace MWRender
         , mAimingFactor(0.f)
     {
         mSounds.fill(nullptr);
-        addAnimSource("meshes\\base_anim.nif", "meshes\\base_anim.nif");
+
+        if (!ptr.isEmpty() && ptr.getType() == ESM::NPC::sRecordId)
+            mNpc = ptr.get<ESM::NPC>()->mBase;
+
+        // Select the same third-person skeleton as the real renderer (MWRender::NpcAnimation::updateNpcBase),
+        // so the correct set of text keys and transform controllers is loaded for headless simulation.
+        std::string defaultSkeleton = Settings::models().mBaseanim.get().value();
+        bool isBeast = false;
+        if (mNpc)
+        {
+            if (const ESM::Race* race
+                = MWBase::Environment::get().getESMStore()->get<ESM::Race>().search(mNpc->mRace))
+                isBeast = (race->mData.mFlags & ESM::Race::Beast) != 0;
+
+            if (isBeast)
+                defaultSkeleton = Settings::models().mBaseanimkna.get().value();
+            else if (!mNpc->isMale())
+                defaultSkeleton = Settings::models().mBaseanimfemale.get().value();
+        }
+
+        const std::string base = Settings::models().mXbaseanim.get().value();
+        if (!base.empty())
+            addAnimSource(base, base);
+        if (defaultSkeleton != base)
+            addAnimSource(defaultSkeleton, defaultSkeleton);
+
+        // Argonian beast races use an additional swimming skeleton.
+        if (mNpc && isBeast && mNpc->mRace.contains("argonian"))
+            addAnimSource(Settings::models().mXargonianswimkna.get().value(), defaultSkeleton);
     }
 
     NpcAnimation::~NpcAnimation() = default;
@@ -651,12 +1006,22 @@ namespace MWRender
     void NpcAnimation::releaseArrow(float attackStrength)
     {
         if (mPtr.isEmpty() || !mPtr.getClass().hasInventoryStore(mPtr))
+        {
+            TES3MP_RANGED_LOG << "[RangedDebug] releaseArrow skipped: actor empty or no inventory (empty="
+                              << (mPtr.isEmpty() ? "true" : "false") << ")";
             return;
+        }
 
         MWWorld::InventoryStore& inv = mPtr.getClass().getInventoryStore(mPtr);
         MWWorld::ContainerStoreIterator weapon = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
         if (weapon == inv.end() || weapon->getType() != ESM::Weapon::sRecordId)
+        {
+            TES3MP_RANGED_LOG << "[RangedDebug] releaseArrow skipped for " << mPtr.getCellRef().getRefId()
+                              << ": no weapon in CarriedRight slot";
             return;
+        }
+        TES3MP_RANGED_LOG << "[RangedDebug] releaseArrow for " << mPtr.getCellRef().getRefId() << " weapon="
+                          << weapon->getCellRef().getRefId() << " attackStrength=" << attackStrength;
 
         const osg::Quat orient = osg::Quat(mPtr.getRefData().getPosition().rot[0], osg::Vec3f(-1, 0, 0))
             * osg::Quat(mPtr.getRefData().getPosition().rot[2], osg::Vec3f(0, 0, -1));
@@ -682,12 +1047,20 @@ namespace MWRender
         {
             MWWorld::ContainerStoreIterator ammo = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
             if (ammo == inv.end())
+            {
+                TES3MP_RANGED_LOG << "[RangedDebug] releaseArrow for " << mPtr.getCellRef().getRefId()
+                                  << ": no ammunition in Ammunition slot (weapon=" << weapon->getCellRef().getRefId()
+                                  << ")";
                 return;
+            }
             const float fMin = gmst.find("fProjectileMinSpeed")->mValue.getFloat();
             const float fMax = gmst.find("fProjectileMaxSpeed")->mValue.getFloat();
             const float speed = fMin + (fMax - fMin) * attackStrength;
             MWWorld::Ptr weaponPtr = *weapon;
             MWWorld::Ptr ammoPtr = *ammo;
+            TES3MP_RANGED_LOG << "[RangedDebug] launchProjectile caster=" << mPtr.getCellRef().getRefId()
+                              << " ammo=" << ammoPtr.getCellRef().getRefId() << " speed=" << speed << " launchPos=("
+                              << launchPos.x() << ", " << launchPos.y() << ", " << launchPos.z() << ")";
             MWBase::Environment::get().getWorld()->launchProjectile(
                 mPtr, ammoPtr, launchPos, orient, weaponPtr, speed, attackStrength);
             inv.remove(ammoPtr, 1);

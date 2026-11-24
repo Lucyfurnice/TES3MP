@@ -2962,9 +2962,6 @@ namespace MWMechanics
 
     bool CharacterController::isMovementAnimationControlled() const
     {
-#ifdef TES3MP_HEADLESS
-        return false;
-#else
         if (mHitState != CharState_None || mDeathState != CharState_None)
             return true;
 
@@ -2978,7 +2975,6 @@ namespace MWMechanics
         if (mMovementState != CharState_None)
             movementAnimationControlled = mMovementAnimationHasMovement;
         return movementAnimationControlled;
-#endif
     }
 
     void CharacterController::clearAnimQueue(bool clearScriptedAnims)

@@ -1444,9 +1444,19 @@ namespace MWWorld
         if (refNum == 0 && mpNum == 0)
             return Ptr();
 
+        /*
+            Start of tes3mp change
+
+            A non-zero mpNum uniquely identifies a dynamically spawned object, but its refNum
+            differs between the server and each client, so match on mpNum alone in that case.
+
+            End of tes3mp change
+        */
         Ptr found;
         forEach([&](const Ptr& ptr) {
-            if (ptr.getCellRef().getRefNum().mIndex == refNum && ptr.getCellRef().getMpNum() == mpNum)
+            const bool refNumMatches
+                = (mpNum != 0) ? true : ptr.getCellRef().getRefNum().mIndex == refNum;
+            if (refNumMatches && ptr.getCellRef().getMpNum() == mpNum)
             {
                 if (!actorsOnly || ptr.getClass().isActor())
                 {

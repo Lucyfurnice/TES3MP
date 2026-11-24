@@ -64,6 +64,17 @@ namespace TES3MPHeadless
         {
             if (!phys->getActor(anchor))
                 phys->addActor(anchor, anchor.getClass().getCorrectedModel(anchor));
+            /*
+                Start of tes3mp addition
+
+                Player anchors are not part of the mechanics actor list, so they are never stepped by the physics
+                simulation and their broadphase AABB would not otherwise be refreshed after a (re)spawn or move.
+                Force an immediate AABB sync so projectile sweeps (NPC arrows) actually collide with the anchor.
+            */
+            phys->updatePosition(anchor);
+            /*
+                End of tes3mp addition
+            */
         }
     }
 
@@ -92,11 +103,12 @@ namespace TES3MPHeadless
         if (anchor.getCell() != targetCell
             || (anchor.getRefData().getPosition().asVec3() - pos.asVec3()).length2() > 0.0001f)
         {
-            const bool cellChanged = (anchor.getCell() != targetCell);
             anchor = mWorld.moveObject(anchor, targetCell, pos.asVec3());
             it->second = anchor;
-            if (cellChanged)
-                ensurePhysicsActor(anchor);
+            // Always re-sync the physics actor: for a move within the same cell the anchor has no base node in the
+            // headless renderer, so World::moveObject() skips its physics AABB update and the anchor would otherwise
+            // be untargetable by projectile sweeps until it next changes cell.
+            ensurePhysicsActor(anchor);
         }
         mWorld.rotateObject(anchor, osg::Vec3f(pos.rot[0], pos.rot[1], pos.rot[2]));
         return anchor;
@@ -109,6 +121,8 @@ namespace TES3MPHeadless
 
         MWBase::Environment::get().getMechanicsManager()->resurrect(anchor);
         anchor.getClass().getCreatureStats(anchor).getAiSequence().clear();
+        // Drop any leftover kill attribution so a resurrected anchor does not carry a stale aggressor.
+        anchor.getClass().getCreatureStats(anchor).setHitAttemptActor({});
         ensurePhysicsActor(anchor);
         Log(Debug::Info) << "[HeadlessServer] Resurrected player anchor for player=" << playerName;
     }

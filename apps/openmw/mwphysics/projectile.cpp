@@ -10,6 +10,8 @@
 #include "object.hpp"
 #include "projectile.hpp"
 
+#include "../../tes3mp-headless/rangeddebug.hpp"
+
 namespace MWPhysics
 {
     Projectile::Projectile(const MWWorld::Ptr& caster, const osg::Vec3f& position, float radius,
@@ -103,6 +105,8 @@ namespace MWPhysics
             if (physicActor)
                 mValidTargets.push_back(physicActor->getCollisionObject());
         }
+        TES3MP_RANGED_LOG << "[RangedDebug] setValidTargets requested=" << targets.size()
+                          << " resolved=" << mValidTargets.size();
     }
 
     bool Projectile::isValidTarget(const btCollisionObject* target) const

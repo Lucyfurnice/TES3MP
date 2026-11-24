@@ -764,11 +764,27 @@ namespace MWWorld
     }
     ESM::Cell* Store<ESM::Cell>::insert(const ESM::Cell& cell)
     {
-        if (search(cell) != nullptr)
+        /*
+            Start of tes3mp change (major)
+
+            Overriding a Cell record must be idempotent: a player-created cell's dynamic record is
+            sent again every time the client reconnects (ID_WORLDSTATE). Previously the second
+            application threw "Failed to create interior cell", which was caught by
+            HeadlessServer::applyDynamicRecords and aborted the whole batch, so every record after
+            the duplicate cell was silently dropped. Because `search` matched on the cell id, the
+            record already lives in mCells; overwrite it in place so the cell pointers held by
+            mInt/mExt/mDynamicInt/mDynamicExt stay valid.
+        */
+        if (const ESM::Cell* existing = search(cell))
         {
-            const std::string cellType = (cell.isExterior()) ? "exterior" : "interior";
-            throw std::runtime_error("Failed to create " + cellType + " cell");
+            ESM::Cell* existingCell = const_cast<ESM::Cell*>(existing);
+            *existingCell = cell;
+            existingCell->updateId();
+            return existingCell;
         }
+        /*
+            End of tes3mp change (major)
+        */
         ESM::Cell* insertedCell = &mCells.emplace(cell.mId, cell).first->second;
         if (cell.isExterior())
         {

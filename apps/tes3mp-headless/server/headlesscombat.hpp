@@ -44,7 +44,7 @@ namespace TES3MPHeadless
             mwmp::Networking* networking, bool validateCombat);
 
         bool dispatchAnchorHealthAndDeath(::Player& player, MWWorld::Ptr& anchor, MWMechanics::CreatureStats& anchorStats,
-            float prevHealth, mwmp::Networking* networking);
+            float prevHealth, mwmp::Networking* networking, const HeadlessPlayerAnchorManager& anchors);
 
         bool hasLastHealth(unsigned short pid) const;
         float getLastHealth(unsigned short pid) const;

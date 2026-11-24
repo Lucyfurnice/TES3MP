@@ -861,6 +861,21 @@ void LocalPlayer::removeSpellsActive()
 
 void LocalPlayer::die()
 {
+    /*
+        Start of tes3mp change
+
+        The server is authoritative for deaths and already broadcasts ID_PLAYER_DEATH when it
+        resolves one. Echoing it back here (and again from CharacterController::playRandomDeath ->
+        sendDeath) made the server scripts run OnPlayerDeath several times for a single kill, which
+        repeated the "was killed by ..." message and - once the first echo had cleared the killer -
+        eventually reported a bogus "committed suicide". If we already know we are dead, stay quiet.
+    */
+    if (creatureStats.mDead)
+        return;
+    /*
+        End of tes3mp change
+    */
+
     creatureStats.mDead = true;
 
     MWWorld::Ptr playerPtr = MWBase::Environment::get().getWorld()->getPlayerPtr();
